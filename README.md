@@ -20,9 +20,9 @@ This project implements the research from the paper **"Careless Whisper: Exploit
 - Potential location changes (mobile data vs. WiFi)
 - Activity patterns over time
 
-**Supported Services:**
-- **WhatsApp**: Full support (CLI, Web, Docker)
-- **Signal**: Experimental support (Web interface only, requires Signal API)
+**Supported Platforms:**
+- **WhatsApp**: Full support (CLI + Web interface)
+- **Signal**: Web interface only (requires Signal API)
 
 **Security implications:** This demonstrates a significant privacy vulnerability in messaging apps that can be exploited for surveillance.
 
@@ -44,78 +44,90 @@ npm install
 cd client && npm install && cd ..
 ```
 
-**Requirements:** Node.js 20+, npm, WhatsApp account
+**Requirements:** 
+- Node.js 20+
+- npm or yarn
+- WhatsApp account (for WhatsApp tracking)
+- Docker (optional, for containerized deployment)
 
 ## Usage
 
 ### Docker (Recommended)
 
-The easiest way to run the application is using Docker:
+The easiest way to run the application:
 
 ```bash
 # Copy environment template
 cp .env.example .env
 
-# (Optional) Customize ports in .env file
-# BACKEND_PORT=3001
-# CLIENT_PORT=3000
-
-# Build and start containers
+# Build and start all services (backend, frontend, Signal API)
 docker compose up --build
 ```
 
-The application will be available at:
-- Frontend: [http://localhost:3000](http://localhost:3000) (or your configured `CLIENT_PORT`)
-- Backend: [http://localhost:3001](http://localhost:3001) (or your configured `BACKEND_PORT`)
+Access the application at:
+- **Frontend:** [http://localhost:3000](http://localhost:3000)
+- **Backend API:** [http://localhost:3001](http://localhost:3001)
+- **Signal API:** [http://localhost:8080](http://localhost:8080)
 
-To stop the containers:
+To customize ports, edit `.env`:
+```bash
+BACKEND_PORT=3001
+CLIENT_PORT=3000
+```
+
+Stop services:
 ```bash
 docker compose down
 ```
 
 ### Manual Setup
 
-#### Environment Configuration (Optional)
-
-Create a `.env` file to customize ports and API settings (defaults provided):
+#### 1. Environment Configuration (Optional)
 
 ```bash
 cp .env.example .env
-# Edit .env to customize BACKEND_PORT, CLIENT_PORT, SIGNAL_API_URL, etc.
+# Edit .env to customize ports and API URLs
 ```
 
-#### Web Interface
+#### 2. Web Interface (WhatsApp + Signal)
 
+Terminal 1 - Start backend:
 ```bash
-# Terminal 1: Start backend (includes Signal API initialization)
 npm run dev
+```
 
-# Terminal 2 (in separate terminal): Start frontend
+Terminal 2 - Start frontend:
+```bash
 npm run start:client
 ```
 
-Open `http://localhost:3000` (or your configured `CLIENT_PORT`), scan QR code with WhatsApp, then select the contact or enter phone number to track.
+Open [http://localhost:3000](http://localhost:3000):
+1. Scan QR code with WhatsApp
+2. Select a contact or enter phone number to start tracking
 
-### CLI Interface (WhatsApp)
+#### 3. CLI Interface (WhatsApp only)
 
+Simple mode:
 ```bash
 npm start
 ```
 
-Or run with command line parameters:
-
+With parameters:
 ```bash
 npx tsx src/index.ts --phone +1XXXXXXXXXX --service whatsapp
 ```
 
-**CLI Options:**
-- `--phone <number>`: Phone number to track (includes country code, e.g., `+1234567890`)
-- `--service <service>`: Service to use (currently only `whatsapp` is supported)
-- `--debug` or `-d`: Enable detailed debug output
+**CLI Flags:**
+- `--phone <number>` - Target phone number (with country code)
+- `--service <service>` - Service: `whatsapp` (default)
+- `--debug` or `-d` - Enable debug output
 
-Without parameters, you'll be prompted to enter the phone number interactively after WhatsApp authentication.
+**Example:**
+```bash
+npx tsx src/index.ts --phone +491701234567 --debug
+```
 
-**Example Output:**
+### Output Explanation
 
 ```
 ╔════════════════════════════════════════════════════════════════╗
@@ -130,73 +142,149 @@ Without parameters, you'll be prompted to enter the phone number interactively a
 ╚════════════════════════════════════════════════════════════════╝
 ```
 
-- **🟢 Online**: Device is actively being used (RTT below threshold)
-- **🟡 Standby**: Device is idle/locked (RTT above threshold)
-- **🔴 Offline**: Device is offline or unreachable (no CLIENT ACK received)
+- **🟢 Online**: Device actively in use (RTT below threshold)
+- **🟡 Standby**: Device idle/locked (RTT above threshold)
+- **🔴 Offline**: Device unreachable (no delivery confirmation)
 
 ## How It Works
 
-The tracker sends probe messages and measures the Round-Trip Time (RTT) to detect device activity. Two probe methods are available:
-
 ### Probe Methods
 
-| Method | Description                                                                                                     |
-|--------|-----------------------------------------------------------------------------------------------------------------|
-| **Delete** (Default) | Sends a "delete" request for a non-existent message ID.                                                         |
-| **Reaction** | Sends a reaction emoji to a non-existent message ID. |
+The tracker sends probe messages and measures RTT to detect device state:
+
+| Method | Platform | Description |
+|--------|----------|-------------|
+| **Delete** | WhatsApp | Sends silent delete request (default) |
+| **Reaction** | WhatsApp | Sends emoji reaction to non-existent message |
+| **Reaction** | Signal | Sends emoji reaction to non-existent message |
+| **Message** | Signal | Sends disappearing message |
 
 ### Detection Logic
 
-The time between sending the probe message and receiving the CLIENT ACK (Status 3) is measured as RTT. Device state is detected using a dynamic threshold calculated as 90% of the median RTT: values below the threshold indicate active usage, values above indicate standby mode. Measurements are stored in a history and the median is continuously updated to adapt to different network conditions.
+1. **Measurement**: RTT is calculated from probe send time to delivery confirmation (CLIENT ACK)
+2. **Threshold**: Dynamic threshold = 90% of median RTT
+3. **State Detection**:
+   - RTT < Threshold → Online (actively using device)
+   - RTT ≥ Threshold → Standby (device idle)
+4. **Adaptation**: Median RTT continuously updated to adapt to network conditions
 
 ### Switching Probe Methods
 
-In the web interface, you can switch between probe methods using the dropdown in the control panel. In CLI mode, the delete method is used by default.
+In web interface: Use dropdown in control panel  
+In CLI: Delete method used by default
 
-## Common Issues
+## Architecture
 
-- **Not Connecting to WhatsApp**: Delete the `auth_info_baileys/` folder and re-scan the QR code.
-- **Signal API Not Starting**: Ensure Docker is running if using the `signal-api` service from docker-compose. For manual setup, you need to have signal-cli-rest-api running on port 8080.
-- **Port Already in Use**: Change ports in `.env` file (or pass environment variables: `BACKEND_PORT=3002 npm run dev`).
-- **Module Not Found Errors**: Run `npm install` to ensure all dependencies are installed.
+### Backend
+- **Express + Socket.IO** for real-time communication
+- **Baileys** for WhatsApp connection via WebSocket
+- **Signal CLI REST API** for Signal tracking
+- **TypeScript** for type safety
+
+### Frontend
+- **React 18** with Hooks
+- **Tailwind CSS** for styling
+- **WebSocket** for real-time RTT updates
+- Components: Login, Dashboard, ContactCard
+
+### Data Flow
+```
+WhatsApp/Signal → Backend (RTT Analysis) → WebSocket → Frontend (Real-time Display)
+```
+
+## Troubleshooting
+
+### WhatsApp Issues
+- **QR code not scanning**: Delete `auth_info_baileys/` and restart
+- **"Not registered on WhatsApp"**: Number doesn't have WhatsApp account
+- **Connection drops**: Network issue or device went offline
+
+### Signal Issues
+- **Signal API not starting**: Ensure Docker is running (`docker ps`)
+- **"Connection refused" on 8080**: Port already in use, change in `.env`
+- **No delivery receipts**: Signal device offline or not connected
+
+### General Issues
+- **Port already in use**: Change `BACKEND_PORT` or `CLIENT_PORT` in `.env`
+- **Module not found**: Run `npm install` and `cd client && npm install`
+- **TypeScript errors**: Run `npm run build` to compile
 
 ## Project Structure
 
 ```
 device-activity-tracker/
 ├── src/
-│   ├── index.ts           # CLI interface (WhatsApp)
-│   ├── tracker.ts         # WhatsApp RTT analysis logic
-│   ├── signal-tracker.ts  # Signal RTT analysis logic
-│   ├── server.ts          # Backend API server (WebSocket + REST)
+│   ├── index.ts              # CLI interface
+│   ├── server.ts             # Express + Socket.IO server
+│   ├── tracker.ts            # WhatsApp RTT analysis logic
+│   ├── signal-tracker.ts     # Signal RTT analysis logic
 │   └── scripts/
-│       └── init-signal.ts # Signal API initialization script
-├── client/                # React web interface (Tailwind CSS)
+│       └── init-signal.ts    # Signal API initialization
+├── client/
 │   ├── src/
-│   │   ├── components/    # React components (Login, Dashboard, ContactCard)
-│   │   ├── App.tsx        # Main app component
-│   │   └── index.tsx      # Entry point
-│   └── public/            # Static assets
-├── Dockerfile             # Backend container
-├── docker-compose.yml     # Multi-container orchestration
-├── .env.example           # Environment configuration template
-├── package.json           # Dependencies & scripts
-└── README.md             # This file
+│   │   ├── components/
+│   │   │   ├── Login.tsx     # WhatsApp QR code login
+│   │   │   ├── Dashboard.tsx # Real-time tracking display
+│   │   │   └── ContactCard.tsx
+│   │   ├── App.tsx           # Main component
+│   │   └── index.tsx         # React entry point
+│   ├── public/               # Static files
+│   └── package.json
+├── Dockerfile                # Backend container
+├── docker-compose.yml        # Multi-container orchestration
+├── .env.example              # Configuration template
+├── tsconfig.json             # TypeScript config
+├── package.json              # Dependencies
+└── README.md
 ```
+
+## npm Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm start` | Run CLI interface |
+| `npm run dev` | Start backend server + init Signal API |
+| `npm run start:server` | Start backend only (includes Signal API) |
+| `npm run start:client` | Start React frontend |
+| `npm run start:signal-api` | Initialize Signal API |
+| `npm run build` | Compile TypeScript to JavaScript |
+
+## npm Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm start` | Run CLI interface |
+| `npm run dev` | Start backend server + init Signal API |
+| `npm run start:server` | Start backend only (includes Signal API) |
+| `npm run start:client` | Start React frontend |
+| `npm run start:signal-api` | Initialize Signal API |
+| `npm run build` | Compile TypeScript to JavaScript |
 
 ## How to Protect Yourself
 
-The most effective mitigation is to enable “Block unknown account messages” in WhatsApp under
-Settings → Privacy → Advanced.
+1. **Enable "Block unknown account messages"** in WhatsApp:
+   - Settings → Privacy → Advanced → Block unknown account messages
+   - Reduces but doesn't eliminate probe message spam
 
-This setting may reduce an attacker’s ability to spam probe reactions from unknown numbers, because WhatsApp blocks high-volume messages from unknown accounts.
-However, WhatsApp does not disclose what “high volume” means, so this does not fully prevent an attacker from sending a significant number of probe reactions before rate-limiting kicks in.
+2. **For Signal**: Enable privacy settings:
+   - Settings → Privacy → Block Unknown Contacts
 
-Disabling read receipts helps with regular messages but does not protect against this specific attack. As of December 2025, this vulnerability remains exploitable in WhatsApp and Signal.
+3. **General measures**:
+   - Disabling read receipts helps with regular messages but NOT this attack
+   - Consider using disappearing messages
+   - Keep apps updated
+
+**Note:** As of January 2026, this vulnerability remains exploitable in both WhatsApp and Signal.
 
 ## Ethical & Legal Considerations
 
-⚠️ For research and educational purposes only. Never track people without explicit consent - this may violate privacy laws. Authentication data (`auth_info_baileys/`) is stored locally and must never be committed to version control.
+⚠️ **For research and educational purposes only.**
+
+- Never track people without explicit written consent
+- May violate privacy laws in your jurisdiction
+- Authentication credentials (`auth_info_baileys/`) must never be committed
+- Use only for authorized security research
+- Respect user privacy and legal requirements
 
 ## Citation
 
@@ -213,15 +301,17 @@ Based on research by Gegenhuber et al., University of Vienna & SBA Research:
 
 ## License
 
-MIT License - See LICENSE file.
+MIT License - See [LICENSE](LICENSE) file
 
-Built with [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys)
+Built with:
+- [@whiskeysockets/baileys](https://github.com/WhiskeySockets/Baileys) - WhatsApp Web API
+- [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api) - Signal CLI wrapper
+- [Express.js](https://expressjs.com/) - Backend framework
+- [Socket.IO](https://socket.io/) - Real-time communication
+- [React](https://react.dev/) - Frontend framework
+- [Tailwind CSS](https://tailwindcss.com/) - Styling
 
 ---
 
 **Use responsibly. This tool demonstrates real security vulnerabilities that affect millions of users.**
 
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=gommzystudio/device-activity-tracker&type=date&legend=top-left)](https://www.star-history.com/#gommzystudio/device-activity-tracker&type=date&legend=top-left)
