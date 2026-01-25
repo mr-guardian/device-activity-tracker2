@@ -14,11 +14,15 @@
 
 This project implements the research from the paper **"Careless Whisper: Exploiting Silent Delivery Receipts to Monitor Users on Mobile Instant Messengers"** by Gabriel K. Gegenhuber, Maximilian Günther, Markus Maier, Aljosha Judmayer, Florian Holzbauer, Philipp É. Frenzel, and Johanna Ullrich (University of Vienna & SBA Research).
 
-**What it does:** By measuring Round-Trip Time (RTT) of WhatsApp message delivery receipts, this tool can detect:
+**What it does:** By measuring Round-Trip Time (RTT) of message delivery receipts, this tool can detect:
 - When a user is actively using their device (low RTT)
 - When the device is in standby/idle mode (higher RTT)
 - Potential location changes (mobile data vs. WiFi)
 - Activity patterns over time
+
+**Supported Services:**
+- **WhatsApp**: Full support (CLI, Web, Docker)
+- **Signal**: Experimental support (Web interface only, requires Signal API)
 
 **Security implications:** This demonstrates a significant privacy vulnerability in messaging apps that can be exploited for surveillance.
 
@@ -71,25 +75,45 @@ docker compose down
 
 ### Manual Setup
 
+#### Environment Configuration (Optional)
+
+Create a `.env` file to customize ports and API settings (defaults provided):
+
+```bash
+cp .env.example .env
+# Edit .env to customize BACKEND_PORT, CLIENT_PORT, SIGNAL_API_URL, etc.
+```
+
 #### Web Interface
 
 ```bash
-# Terminal 1: Start backend
-npm run start:server
+# Terminal 1: Start backend (includes Signal API initialization)
+npm run dev
 
-# Terminal 2: Start frontend
+# Terminal 2 (in separate terminal): Start frontend
 npm run start:client
 ```
 
-Open `http://localhost:3000`, scan QR code with WhatsApp, then enter phone number to track (e.g., `491701234567`).
+Open `http://localhost:3000` (or your configured `CLIENT_PORT`), scan QR code with WhatsApp, then select the contact or enter phone number to track.
 
-### CLI Interface (only WhatsApp)
+### CLI Interface (WhatsApp)
 
 ```bash
 npm start
 ```
 
-Follow prompts to authenticate and enter target number.
+Or run with command line parameters:
+
+```bash
+npx tsx src/index.ts --phone +1XXXXXXXXXX --service whatsapp
+```
+
+**CLI Options:**
+- `--phone <number>`: Phone number to track (includes country code, e.g., `+1234567890`)
+- `--service <service>`: Service to use (currently only `whatsapp` is supported)
+- `--debug` or `-d`: Enable detailed debug output
+
+Without parameters, you'll be prompted to enter the phone number interactively after WhatsApp authentication.
 
 **Example Output:**
 
@@ -132,18 +156,32 @@ In the web interface, you can switch between probe methods using the dropdown in
 ## Common Issues
 
 - **Not Connecting to WhatsApp**: Delete the `auth_info_baileys/` folder and re-scan the QR code.
+- **Signal API Not Starting**: Ensure Docker is running if using the `signal-api` service from docker-compose. For manual setup, you need to have signal-cli-rest-api running on port 8080.
+- **Port Already in Use**: Change ports in `.env` file (or pass environment variables: `BACKEND_PORT=3002 npm run dev`).
+- **Module Not Found Errors**: Run `npm install` to ensure all dependencies are installed.
 
 ## Project Structure
 
 ```
 device-activity-tracker/
 ├── src/
+│   ├── index.ts           # CLI interface (WhatsApp)
 │   ├── tracker.ts         # WhatsApp RTT analysis logic
 │   ├── signal-tracker.ts  # Signal RTT analysis logic
-│   ├── server.ts          # Backend API server (both platforms)
-│   └── index.ts           # CLI interface
-├── client/                # React web interface
-└── package.json
+│   ├── server.ts          # Backend API server (WebSocket + REST)
+│   └── scripts/
+│       └── init-signal.ts # Signal API initialization script
+├── client/                # React web interface (Tailwind CSS)
+│   ├── src/
+│   │   ├── components/    # React components (Login, Dashboard, ContactCard)
+│   │   ├── App.tsx        # Main app component
+│   │   └── index.tsx      # Entry point
+│   └── public/            # Static assets
+├── Dockerfile             # Backend container
+├── docker-compose.yml     # Multi-container orchestration
+├── .env.example           # Environment configuration template
+├── package.json           # Dependencies & scripts
+└── README.md             # This file
 ```
 
 ## How to Protect Yourself
