@@ -32,7 +32,7 @@ The web interface shows real-time RTT measurements, device state detection, and 
 
 ```bash
 # Clone repository
-git clone https://github.com/gommzystudio/device-activity-tracker.git
+git clone https://github.com/guberm/device-activity-tracker.git
 cd device-activity-tracker
 
 # Install dependencies
