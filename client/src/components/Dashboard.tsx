@@ -16,45 +16,35 @@ interface ContactInfo {
 export function Dashboard({ connectionState }: { connectionState: ConnectionState }) {
     const [targetNumber, setTargetNumber] = useState('');
     const [selectedPlatform, setSelectedPlatform] = useState<Platform>('whatsapp');
-    const [contacts, setContacts] = useState>(new Map());
-    
-    // Güvenli LocalStorage Başlatma
-    const [historyData, setHistoryData] = useState>(() => {
-        const initialMap = new Map<string, TrackerData[]>();
+    const [contacts, setContacts] = useState<ContactInfo[]>([]);
+    const [historyData, setHistoryData] = useState<Record<string, TrackerData[]>>({});
+    const [privacyMode, setPrivacyMode] = useState(false);
+
+    // İlk açılışta LocalStorage'dan güvenli oku
+    useEffect(() => {
         try {
-            const saved = localStorage.getItem('tracker_history_data');
+            const saved = localStorage.getItem('dat_history_v2');
             if (saved) {
                 const parsed = JSON.parse(saved);
                 if (parsed && typeof parsed === 'object') {
-                    for (const [key, value] of Object.entries(parsed)) {
-                        if (Array.isArray(value)) {
-                            initialMap.set(key, value);
-                        }
-                    }
+                    setHistoryData(parsed);
                 }
             }
-        } catch (e) {
-            console.error('LocalStorage okuma hatası:', e);
-            localStorage.removeItem('tracker_history_data');
+        } catch {
+            localStorage.removeItem('dat_history_v2');
         }
-        return initialMap;
-    });
+    }, []);
 
-    const [privacyMode, setPrivacyMode] = useState(false);
-
-    // Veri değiştikçe güvenli kaydetme
+    // Veri değiştikçe kaydet (Debounce edilmiş)
     useEffect(() => {
-        try {
-            const plainObject: Record<string, TrackerData[]> = {};
-            historyData.forEach((val, key) => {
-                if (Array.isArray(val)) {
-                    plainObject[key] = val.slice(-1000); // Belleği şişirmemek için son 1000 kayıt
-                }
-            });
-            localStorage.setItem('tracker_history_data', JSON.stringify(plainObject));
-        } catch (e) {
-            console.error('LocalStorage yazma hatası:', e);
-        }
+        const timer = setTimeout(() => {
+            try {
+                localStorage.setItem('dat_history_v2', JSON.stringify(historyData));
+            } catch (e) {
+                console.error('Kayıt hatası', e);
+            }
+        }, 1000);
+        return () => clearTimeout(timer);
     }, [historyData]);
 
     useEffect(() => {
@@ -62,77 +52,68 @@ export function Dashboard({ connectionState }: { connectionState: ConnectionStat
 
         const onTrackedContacts = (list: { id: string; platform: Platform }[]) => {
             setContacts(prev => {
-                const next = new Map(prev);
-                list.forEach(c => {
-                    if (!next.has(c.id)) {
-                        next.set(c.id, { id: c.id, platform: c.platform, devices: [] });
-                    }
-                });
-                return next;
+                const existingIds = new Set(prev.map(c => c.id));
+                const additions = list.filter(c => !existingIds.has(c.id)).map(c => ({
+                    id: c.id,
+                    platform: c.platform,
+                    devices: []
+                }));
+                return [...prev, ...additions];
             });
         };
 
         const onContactAdded = (data: { jid: string; number: string; platform: Platform }) => {
             setContacts(prev => {
-                const next = new Map(prev);
-                next.set(data.jid, { id: data.jid, platform: data.platform, name: data.number, devices: [] });
-                return next;
+                if (prev.some(c => c.id === data.jid)) return prev;
+                return [...prev, { id: data.jid, platform: data.platform, name: data.number, devices: [] }];
             });
         };
 
         const onContactRemoved = (jid: string) => {
-            setContacts(prev => {
-                const next = new Map(prev);
-                next.delete(jid);
-                return next;
-            });
+            setContacts(prev => prev.filter(c => c.id !== jid));
         };
 
         const onTrackerUpdate = (update: any) => {
+            if (!update || !update.jid) return;
             const jid = update.jid;
             const now = Date.now();
 
-            setContacts(prev => {
-                const contact = prev.get(jid);
-                if (!contact) return prev;
-                const next = new Map(prev);
-                next.set(jid, {
-                    ...contact,
-                    devices: update.devices || [],
-                    deviceCount: update.deviceCount || 0,
-                    presence: update.presence
-                });
-                return next;
-            });
+            setContacts(prev => prev.map(c => {
+                if (c.id === jid) {
+                    return {
+                        ...c,
+                        devices: update.devices || [],
+                        deviceCount: update.deviceCount || 0,
+                        presence: update.presence
+                    };
+                }
+                return c;
+            }));
 
             if (update.devices && update.devices.length > 0) {
-                const primaryDevice = update.devices[0];
+                const primary = update.devices[0];
                 const newPoint: TrackerData = {
-                    rtt: primaryDevice.rtt,
-                    avg: primaryDevice.avg,
+                    rtt: primary.rtt || 0,
+                    avg: primary.avg || 0,
                     median: update.median || 0,
                     threshold: update.threshold || 0,
-                    state: primaryDevice.state || 'Standby',
+                    state: primary.state || 'Standby',
                     timestamp: now
                 };
 
                 setHistoryData(prev => {
-                    const next = new Map(prev);
-                    const currentList = next.get(jid) || [];
-                    next.set(jid, [...currentList.slice(-1000), newPoint]);
-                    return next;
+                    const currentList = prev[jid] || [];
+                    return {
+                        ...prev,
+                        [jid]: [...currentList.slice(-200), newPoint] // Son 200 ölçüm (Performans için optimum)
+                    };
                 });
             }
         };
 
         const onProfilePic = (data: { jid: string; url: string | null }) => {
-            setContacts(prev => {
-                const contact = prev.get(data.jid);
-                if (!contact) return prev;
-                const next = new Map(prev);
-                next.set(data.jid, { ...contact, profilePic: data.url });
-                return next;
-            });
+            if (!data?.jid) return;
+            setContacts(prev => prev.map(c => c.id === data.jid ? { ...c, profilePic: data.url } : c));
         };
 
         socket.on('tracked-contacts', onTrackedContacts);
@@ -163,8 +144,8 @@ export function Dashboard({ connectionState }: { connectionState: ConnectionStat
 
     const clearLocalHistory = () => {
         if (window.confirm('Tüm geçmiş grafik ve hareket verilerini temizlemek istiyor musunuz?')) {
-            localStorage.removeItem('tracker_history_data');
-            setHistoryData(new Map());
+            localStorage.removeItem('dat_history_v2');
+            setHistoryData({});
         }
     };
 
@@ -198,7 +179,6 @@ export function Dashboard({ connectionState }: { connectionState: ConnectionStat
                 <div className="flex items-center gap-2">
                     <button
                         onClick={clearLocalHistory}
-                        title="Grafik hafızasını temizle"
                         className="px-3 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 text-xs font-medium flex items-center gap-1.5"
                     >
                         <Trash2 size={14} /> Geçmişi Temizle
@@ -216,12 +196,12 @@ export function Dashboard({ connectionState }: { connectionState: ConnectionStat
             </div>
 
             <div className="space-y-6">
-                {Array.from(contacts.values()).map(contact => (
+                {contacts.map(contact => (
                     <ContactCard
                         key={contact.id}
                         jid={contact.id}
                         displayNumber={contact.name || contact.id.replace(/\D/g, '')}
-                        data={historyData.get(contact.id) || []}
+                        data={historyData[contact.id] || []}
                         devices={contact.devices || []}
                         deviceCount={contact.deviceCount || 0}
                         presence={contact.presence || null}
