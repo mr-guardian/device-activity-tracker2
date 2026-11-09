@@ -432,8 +432,8 @@ io.on('connection', (socket) => {
 // React statik build dosyalarini sun
 app.use(express.static(path.join(__dirname, '../client/build')));
 
-// Tum rotalari React ana sayfasina yonlendir
-app.get('*', (req: any, res: any) => {
+// Tum rotalari React ana sayfasina yonlendir (Express 5 ve path-to-regexp uyumlu)
+app.get('(.*)', (req: any, res: any) => {
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
 });
 
