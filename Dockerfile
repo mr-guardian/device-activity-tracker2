@@ -3,8 +3,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install git, unzip and build dependencies
-RUN apk add --no-cache git python3 make g++ unzip
+# Install git and build dependencies
+RUN apk add --no-cache git python3 make g++
 
 # Copy backend package files
 COPY package*.json ./
@@ -33,8 +33,7 @@ ARG PORT=3001
 ENV PORT=${PORT}
 EXPOSE ${PORT}
 
-# Oturum arşivini kopyala ve çıkart
-COPY auth.zip ./
-RUN unzip -q auth.zip && rm auth.zip
+# WhatsApp oturum klasörünü oluştur
+RUN mkdir -p /app/auth_info_baileys
 
 CMD ["node", "dist/server.js"]
