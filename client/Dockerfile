@@ -3,28 +3,26 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Gerekli sistem paketleri
 RUN apk add --no-cache git python3 make g++
 
-# Backend
-COPY package*.json ./
-COPY tsconfig.json ./
+# 1. Backend Hazırlık
+COPY package*.json tsconfig.json ./
 RUN npm install --ignore-scripts
 COPY src ./src
 RUN npm run build
 
-# Frontend
+# 2. Frontend Hazırlık
 COPY client ./client
 ENV CI=false
-ENV TSC_COMPILE_ON_ERROR=true
 ENV DISABLE_ESLINT_PLUGIN=true
+ENV TSC_COMPILE_ON_ERROR=true
+ENV GENERATE_SOURCEMAP=false
 
 RUN cd client && \
     npm install --legacy-peer-deps && \
-    npm install ajv@^8.0.0 --legacy-peer-deps && \
     npm run build
 
-# Port ve kalıcı volume klasörü
+# Port ve Oturum Klasörü
 ARG PORT=3001
 ENV PORT=${PORT}
 EXPOSE ${PORT}
