@@ -22,7 +22,8 @@ ENV TSC_COMPILE_ON_ERROR=true
 RUN cd client && \
     npm install --legacy-peer-deps && \
     npm install ajv@^6.12.6 ajv-keywords@^3.5.2 --legacy-peer-deps && \
-    npm run build
+    npm run build && \
+    ls -la build/
 
 # Port ve Kalıcı Hafıza
 ARG PORT=3001
