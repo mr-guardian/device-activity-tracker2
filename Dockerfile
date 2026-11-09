@@ -1,22 +1,30 @@
+# Backend Dockerfile
 FROM node:20-alpine
 
 WORKDIR /app
 
+# Install git and build dependencies
+RUN apk add --no-cache git python3 make g++
+
+# Copy package files
 COPY package*.json ./
-COPY client/package*.json ./client/
+COPY tsconfig.json ./
 
-RUN npm install
-RUN cd client && npm install
+# Install dependencies (ignore postinstall script that tries to install client deps)
+RUN npm install --ignore-scripts
 
-COPY . .
+# Copy source code
+COPY src ./src
 
-RUN cd client && npm run build
+# Build TypeScript
+RUN npm run build
 
-RUN mkdir -p /app/auth_data
+# Expose port (can be overridden by environment variable)
+ARG PORT=3001
+ENV PORT=${PORT}
+EXPOSE ${PORT}
 
-ENV PORT=3000
-ENV AUTH_PATH=/app/auth_data
+# Create directory for WhatsApp auth state
+RUN mkdir -p /app/baileys_auth_info
 
-EXPOSE 3000
-
-CMD ["npm", "run", "start:server"]
+CMD ["node", "dist/server.js"]
