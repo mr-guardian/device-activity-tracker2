@@ -6,7 +6,7 @@ WORKDIR /app
 # Install git and build dependencies
 RUN apk add --no-cache git python3 make g++
 
-# Copy package files
+# Copy backend package files
 COPY package*.json ./
 COPY tsconfig.json ./
 
@@ -23,9 +23,10 @@ RUN npm run build
 # Client klasörünü kopyala
 COPY client ./client
 
-# Client bağımlılıklarını kur ve derle (TS2322 hatasını bypass etmek için bayrak eklendi)
+# Client bağımlılıklarını kur, ajv çakışmasını gider ve derle
 RUN cd client && \
     npm install --legacy-peer-deps && \
+    npm install ajv@^8.0.0 --legacy-peer-deps && \
     TSC_COMPILE_ON_ERROR=true npm run build
 
 # Expose port (can be overridden by environment variable)
