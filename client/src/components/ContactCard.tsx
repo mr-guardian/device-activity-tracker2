@@ -37,16 +37,16 @@ interface ContactCardProps {
 export function ContactCard({
     jid,
     displayNumber,
-    data,
-    devices,
-    deviceCount,
+    data = [],
+    devices = [],
+    deviceCount = 0,
     presence,
     profilePic,
     onRemove,
     privacyMode = false,
     platform = 'whatsapp'
 }: ContactCardProps) {
-    const lastData = data[data.length - 1];
+    const lastData = data.length > 0 ? data[data.length - 1] : null;
     const currentStatus = devices.length > 0
         ? (devices.find(d => d.state === 'OFFLINE')?.state ||
             devices.find(d => d.state.includes('Online'))?.state ||
@@ -62,9 +62,9 @@ export function ContactCard({
 
     const blurredNumber = privacyMode ? displayNumber.replace(/\d/g, '•') : displayNumber;
 
-    // --- Geofence & Hareket Analizi (Son 10 Ölçümün Jitter / Sapma Hesabı) ---
+    // --- Geofence Analizi (Hafifletilmiş) ---
     const motionAnalysis = useMemo(() => {
-        if (data.length < 5) {
+        if (!data || data.length < 5) {
             return {
                 motionState: 'Kalibre Ediliyor...',
                 jitter: 0,
@@ -73,15 +73,12 @@ export function ContactCard({
             };
         }
 
-        const recent = data.slice(-10);
-        const rttValues = recent.map(d => d.rtt);
+        const recent = data.slice(-8);
+        const rttValues = recent.map(d => d.rtt || 0);
         const mean = rttValues.reduce((a, b) => a + b, 0) / rttValues.length;
-        
-        // Standart Sapma (Jitter) Hesabı
         const variance = rttValues.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / rttValues.length;
         const jitter = Math.round(Math.sqrt(variance));
 
-        // Ağ ve hareket eşikleri
         if (jitter > 350) {
             return {
                 motionState: 'Hareket Halinde / Seyahatte',
@@ -104,37 +101,42 @@ export function ContactCard({
                 indicator: '📍'
             };
         }
-    }, [data]);
+    }, [data.length]); // Sadece veri boyutu değiştiğinde hesapla
 
-    // --- 24 Saatlik Zaman Çizelgesi (Gantt Blokları) ---
+    // --- 24 Saatlik Zaman Çizelgesi (Optimize Flex Blokları) ---
     const timelineBlocks = useMemo(() => {
         const now = Date.now();
         const oneDayMs = 24 * 60 * 60 * 1000;
-        const blockCount = 48;
+        const blockCount = 48; // 30 dakikalık dilimler
         const blockSizeMs = oneDayMs / blockCount;
         const startTime = now - oneDayMs;
 
-        return Array.from({ length: blockCount }, (_, i) => {
-            const blockStart = startTime + i * blockSizeMs;
-            const blockEnd = blockStart + blockSizeMs;
-            const blockDate = new Date(blockStart);
-            const timeLabel = `${blockDate.getHours().toString().padStart(2, '0')}:${blockDate.getMinutes().toString().padStart(2, '0')}`;
+        const blocks = [];
+        for (let i = 0; i < blockCount; i++) {
+            const bStart = startTime + i * blockSizeMs;
+            const bEnd = bStart + blockSizeMs;
+            const bDate = new Date(bStart);
+            const timeLabel = `${bDate.getHours().toString().padStart(2, '0')}:${bDate.getMinutes().toString().padStart(2, '0')}`;
 
-            const inBlock = data.filter(d => d.timestamp >= blockStart && d.timestamp < blockEnd);
+            let hasOnline = false;
+            let hasAny = false;
 
-            let status: 'online' | 'standby' | 'empty' = 'empty';
-            if (inBlock.length > 0) {
-                const hasOnline = inBlock.some(d => d.state === 'Online' || (d.threshold > 0 && d.avg < d.threshold));
-                status = hasOnline ? 'online' : 'standby';
+            for (let j = 0; j < data.length; j++) {
+                const ts = data[j].timestamp;
+                if (ts >= bStart && ts < bEnd) {
+                    hasAny = true;
+                    if (data[j].state === 'Online' || (data[j].threshold > 0 && data[j].avg < data[j].threshold)) {
+                        hasOnline = true;
+                        break;
+                    }
+                }
             }
 
-            return {
-                label: timeLabel,
-                status,
-                count: inBlock.length
-            };
-        });
-    }, [data]);
+            const status = !hasAny ? 'empty' : hasOnline ? 'online' : 'standby';
+            blocks.push({ label: timeLabel, status });
+        }
+        return blocks;
+    }, [data.length]);
 
     return (
         <div className="bg-gradient-to-br from-white to-gray-50 rounded-xl shadow-lg border border-gray-200 overflow-hidden mb-6">
@@ -160,7 +162,7 @@ export function ContactCard({
 
             <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {/* Status Card */}
+                    {/* Status Sol Kolon */}
                     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col items-center text-center">
                         <div className="relative mb-4">
                             <div className="w-32 h-32 rounded-full overflow-hidden bg-gray-100 border-4 border-white shadow-md">
@@ -172,7 +174,6 @@ export function ContactCard({
                                             "w-full h-full object-cover transition-all duration-200",
                                             privacyMode && "blur-xl scale-110"
                                         )}
-                                        style={privacyMode ? { filter: 'blur(16px) contrast(0.8)' } : {}}
                                     />
                                 ) : (
                                     <div className="w-full h-full flex items-center justify-center text-gray-400">
@@ -189,7 +190,7 @@ export function ContactCard({
 
                         <h4 className="text-xl font-bold text-gray-900 mb-1">{blurredNumber}</h4>
 
-                        <div className="flex items-center gap-2 mb-4">
+                        <div className="flex items-center gap-2 mb-3">
                             <span className={clsx(
                                 "px-3 py-1 rounded-full text-sm font-medium",
                                 currentStatus === 'OFFLINE' ? "bg-red-100 text-red-700" :
@@ -200,16 +201,16 @@ export function ContactCard({
                             </span>
                         </div>
 
-                        {/* Geofence / Hareket Durumu Rozeti */}
+                        {/* Hareket / Jitter Rozeti */}
                         <div className={clsx(
                             "w-full py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-between mb-4",
                             motionAnalysis.color
                         )}>
                             <span className="flex items-center gap-1.5">
-                                <Navigation size={14} />
+                                <Navigation size={13} />
                                 {motionAnalysis.indicator} {motionAnalysis.motionState}
                             </span>
-                            <span className="text-[10px] opacity-80">Jitter: ±{motionAnalysis.jitter}ms</span>
+                            <span className="text-[10px] opacity-80">±{motionAnalysis.jitter}ms</span>
                         </div>
 
                         <div className="w-full pt-4 border-t border-gray-100 space-y-2">
@@ -248,36 +249,35 @@ export function ContactCard({
                         )}
                     </div>
 
-                    {/* Metrics, Chart & Gantt */}
-                    <div className="md:col-span-2 space-y-6">
-                        {/* Metrics Grid */}
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                    {/* Sağ Taraf: Metrikler, 24h Çizelge ve Grafik */}
+                    <div className="md:col-span-2 space-y-5">
+                        {/* 4'lü Metrik Kartları */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="bg-white p-3.5 rounded-xl shadow-sm border border-gray-200">
                                 <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                                    <Activity size={14} /> Avg RTT
+                                    <Activity size={13} /> Avg RTT
                                 </div>
-                                <div className="text-xl font-bold text-gray-900">
+                                <div className="text-lg font-bold text-gray-900">
                                     {lastData?.avg ? lastData.avg.toFixed(0) : '-'} <span className="text-xs font-normal">ms</span>
                                 </div>
                             </div>
 
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                            <div className="bg-white p-3.5 rounded-xl shadow-sm border border-gray-200">
                                 <div className="text-xs text-gray-500 mb-1">Median (50)</div>
-                                <div className="text-xl font-bold text-gray-900">
+                                <div className="text-lg font-bold text-gray-900">
                                     {lastData?.median ? lastData.median.toFixed(0) : '-'} <span className="text-xs font-normal">ms</span>
                                 </div>
                             </div>
 
-                            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                            <div className="bg-white p-3.5 rounded-xl shadow-sm border border-gray-200">
                                 <div className="text-xs text-gray-500 mb-1">Threshold</div>
-                                <div className="text-xl font-bold text-blue-600">
+                                <div className="text-lg font-bold text-blue-600">
                                     {lastData?.threshold ? lastData.threshold.toFixed(0) : '-'} <span className="text-xs font-normal">ms</span>
                                 </div>
                             </div>
 
-                            {/* Delta Kartı */}
                             <div className={clsx(
-                                "p-4 rounded-xl shadow-sm border transition-all",
+                                "p-3.5 rounded-xl shadow-sm border transition-all",
                                 !hasCalibrated
                                     ? "bg-white border-gray-200 text-gray-400"
                                     : isUnderThreshold
@@ -285,12 +285,12 @@ export function ContactCard({
                                         : "bg-amber-50 border-amber-200 text-amber-800"
                             )}>
                                 <div className="text-xs font-medium mb-1 flex items-center gap-1">
-                                    <Zap size={14} className={clsx(
+                                    <Zap size={13} className={clsx(
                                         !hasCalibrated ? "text-gray-400" : isUnderThreshold ? "text-emerald-600" : "text-amber-600"
                                     )} />
                                     Fark (Δ RTT)
                                 </div>
-                                <div className="text-xl font-bold">
+                                <div className="text-lg font-bold">
                                     {!hasCalibrated ? (
                                         '-'
                                     ) : (
@@ -300,76 +300,62 @@ export function ContactCard({
                                         </>
                                     )}
                                 </div>
-                                <div className="text-[10px] mt-0.5 font-semibold">
-                                    {!hasCalibrated
-                                        ? 'Kalibrasyon...'
-                                        : isUnderThreshold
-                                            ? '🔥 Eşik Altı (Aktif)'
-                                            : '💤 Eşik Üstü (Standby)'}
-                                </div>
                             </div>
                         </div>
 
-                        {/* 24 Saatlik Çizelge */}
+                        {/* 24 Saatlik Çizelge (Çökmeyen Flex Yapısı) */}
                         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                            <div className="flex justify-between items-center mb-3">
+                            <div className="flex justify-between items-center mb-2.5">
                                 <h5 className="text-xs font-semibold text-gray-700 uppercase flex items-center gap-1">
-                                    <Clock size={14} className="text-blue-600" /> 24 Saatlik Aktivite Çizelgesi
+                                    <Clock size={13} className="text-blue-600" /> 24 Saatlik Çizelge
                                 </h5>
-                                <div className="flex items-center gap-3 text-[11px] text-gray-500">
+                                <div className="flex items-center gap-2.5 text-[10px] text-gray-500">
                                     <span className="flex items-center gap-1">
-                                        <span className="w-2.5 h-2.5 bg-emerald-500 rounded-sm inline-block"></span> Aktif
+                                        <span className="w-2 h-2 bg-emerald-500 rounded-xs inline-block"></span> Aktif
                                     </span>
                                     <span className="flex items-center gap-1">
-                                        <span className="w-2.5 h-2.5 bg-amber-400 rounded-sm inline-block"></span> Standby
-                                    </span>
-                                    <span className="flex items-center gap-1">
-                                        <span className="w-2.5 h-2.5 bg-gray-100 border border-gray-200 rounded-sm inline-block"></span> Kayıt Yok
+                                        <span className="w-2 h-2 bg-amber-400 rounded-xs inline-block"></span> Standby
                                     </span>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-24 sm:grid-cols-48 gap-0.5 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                            {/* Ekrana göre esneyen 48 blok */}
+                            <div className="flex gap-[2px] bg-gray-50 p-1.5 rounded-lg border border-gray-100 overflow-hidden">
                                 {timelineBlocks.map((block, idx) => (
                                     <div
                                         key={idx}
-                                        title={`${block.label} - Durum: ${block.status.toUpperCase()}`}
+                                        title={`${block.label} - ${block.status.toUpperCase()}`}
                                         className={clsx(
-                                            "h-7 rounded-xs transition-colors cursor-pointer hover:opacity-80",
-                                            block.status === 'online' && "bg-emerald-500 shadow-xs",
+                                            "flex-1 h-6 rounded-[2px] transition-colors",
+                                            block.status === 'online' && "bg-emerald-500",
                                             block.status === 'standby' && "bg-amber-400",
-                                            block.status === 'empty' && "bg-gray-200/60"
+                                            block.status === 'empty' && "bg-gray-200"
                                         )}
                                     />
                                 ))}
                             </div>
-                            <div className="flex justify-between text-[10px] text-gray-400 mt-1 px-1">
+                            <div className="flex justify-between text-[10px] text-gray-400 mt-1">
                                 <span>24 Saat Önce</span>
                                 <span>12 Saat Önce</span>
                                 <span>Şimdi</span>
                             </div>
                         </div>
 
-                        {/* RTT Geçmişi Grafiği */}
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-[280px]">
-                            <h5 className="text-sm font-medium text-gray-500 mb-4">RTT Geçmişi & Eşik Değeri</h5>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={data}>
+                        {/* Recharts Grafiği */}
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 h-[260px]">
+                            <h5 className="text-xs font-medium text-gray-500 mb-3">RTT Geçmişi & Eşik</h5>
+                            <ResponsiveContainer width="100%" height="88%">
+                                <LineChart data={data.slice(-50)}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                                     <XAxis dataKey="timestamp" hide />
-                                    <YAxis domain={['auto', 'auto']} />
+                                    <YAxis domain={['auto', 'auto']} width={35} />
                                     <Tooltip
                                         labelFormatter={(t: any) => new Date(t).toLocaleTimeString()}
                                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                     />
-                                    <Line type="monotone" dataKey="avg" stroke="#3b82f6" strokeWidth={2} dot={false} name="Avg RTT" isAnimationActive={false} />
-                                    <Line type="step" dataKey="threshold" stroke="#ef4444" strokeDasharray="5 5" dot={false} name="Threshold" isAnimationActive={false} />
+                                    <Line type="monotone" dataKey="avg" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
+                                    <Line type="step" dataKey="threshold" stroke="#ef4444" strokeDasharray="4 4" dot={false} isAnimationActive={false} />
                                 </LineChart>
                             </ResponsiveContainer>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    );
-}
