@@ -8,7 +8,7 @@
  */
 
 import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'fs';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -18,10 +18,6 @@ import { pino } from 'pino';
 import { Boom } from '@hapi/boom';
 import { WhatsAppTracker, ProbeMethod } from './tracker.js';
 import { SignalTracker, getSignalAccounts, checkSignalNumber } from './signal-tracker.js';
-
-// ES Module icinde __dirname tanimlamasi
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Configuration
 const SIGNAL_API_URL = process.env.SIGNAL_API_URL || 'http://localhost:8080';
@@ -429,12 +425,25 @@ io.on('connection', (socket) => {
     });
 });
 
-// React statik build dosyalarini sun
-app.use(express.static(path.join(__dirname, '../client/build')));
+// Hem build hem dist klasorunu otomatik tespit eden istemci yolu
+const possibleClientPaths = [
+    path.resolve(process.cwd(), 'client/build'),
+    path.resolve(process.cwd(), 'client/dist'),
+    path.resolve(process.cwd(), 'build'),
+    path.resolve(process.cwd(), 'dist')
+];
 
-// Tum diger istekleri dogrudan React arayuzune gonder
+const clientPath = possibleClientPaths.find((p) => fs.existsSync(p)) || possibleClientPaths[0];
+
+app.use(express.static(clientPath));
+
 app.use((req: any, res: any) => {
-    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+    const indexPath = path.join(clientPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.send('Tracker Backend Calisiyor. Frontend dosyalari derleniyor...');
+    }
 });
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
