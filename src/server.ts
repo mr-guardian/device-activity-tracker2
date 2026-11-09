@@ -21,6 +21,7 @@ import { SignalTracker, getSignalAccounts, checkSignalNumber } from './signal-tr
 
 // Configuration
 const SIGNAL_API_URL = process.env.SIGNAL_API_URL || 'http://localhost:8080';
+const ENABLE_SIGNAL = process.env.ENABLE_SIGNAL === 'true'; // Signal sadece açıkça istendiğinde çalışsın
 
 const app = express();
 app.use(cors());
@@ -28,7 +29,7 @@ app.use(cors());
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
-        origin: "*", // Allow all origins for dev
+        origin: "*",
         methods: ["GET", "POST"]
     }
 });
@@ -37,8 +38,8 @@ let sock: any;
 let isWhatsAppConnected = false;
 let isSignalConnected = false;
 let signalAccountNumber: string | null = null;
-let globalProbeMethod: ProbeMethod = 'delete'; // Default to delete method
-let currentWhatsAppQr: string | null = null; // Store current QR code for new clients
+let globalProbeMethod: ProbeMethod = 'delete';
+let currentWhatsAppQr: string | null = null;
 
 // Platform type for contacts
 type Platform = 'whatsapp' | 'signal';
@@ -48,7 +49,7 @@ interface TrackerEntry {
     platform: Platform;
 }
 
-const trackers: Map<string, TrackerEntry> = new Map(); // JID/Number -> Tracker entry
+const trackers: Map<string, TrackerEntry> = new Map();
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -65,13 +66,13 @@ async function connectToWhatsApp() {
 
         if (qr) {
             console.log('QR Code generated');
-            currentWhatsAppQr = qr; // Store the QR code
+            currentWhatsAppQr = qr;
             io.emit('qr', qr);
         }
 
         if (connection === 'close') {
             isWhatsAppConnected = false;
-            currentWhatsAppQr = null; // Clear QR on close
+            currentWhatsAppQr = null;
             const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('connection closed, reconnecting ', shouldReconnect);
             if (shouldReconnect) {
@@ -79,7 +80,7 @@ async function connectToWhatsApp() {
             }
         } else if (connection === 'open') {
             isWhatsAppConnected = true;
-            currentWhatsAppQr = null; // Clear QR on successful connection
+            currentWhatsAppQr = null;
             console.log('opened connection');
             io.emit('connection-open');
         }
@@ -105,8 +106,8 @@ let signalLinkingInProgress = false;
 let signalApiAvailable = false;
 let currentSignalQrUrl: string | null = null;
 
-// Check Signal API availability
 async function checkSignalApiAvailable(): Promise<boolean> {
+    if (!ENABLE_SIGNAL) return false;
     try {
         const response = await fetch(`${SIGNAL_API_URL}/v1/about`, {
             signal: AbortSignal.timeout(2000)
@@ -117,8 +118,9 @@ async function checkSignalApiAvailable(): Promise<boolean> {
     }
 }
 
-// Check Signal connection status
 async function checkSignalConnection() {
+    if (!ENABLE_SIGNAL) return;
+
     try {
         const available = await checkSignalApiAvailable();
         if (available !== signalApiAvailable) {
@@ -152,13 +154,11 @@ async function checkSignalConnection() {
                 console.log('[SIGNAL] Disconnected');
                 io.emit('signal-disconnected');
             }
-            // No accounts - need to link, start QR code process
             if (!signalLinkingInProgress) {
                 startSignalLinking();
             }
         }
     } catch (err) {
-        console.log('[SIGNAL] Error checking connection:', err);
         if (isSignalConnected) {
             isSignalConnected = false;
             signalAccountNumber = null;
@@ -167,49 +167,39 @@ async function checkSignalConnection() {
     }
 }
 
-// Start Signal device linking - signal-cli-rest-api returns QR as PNG image
 async function startSignalLinking() {
-    if (signalLinkingInProgress || isSignalConnected) return;
+    if (!ENABLE_SIGNAL || signalLinkingInProgress || isSignalConnected) return;
 
     signalLinkingInProgress = true;
     console.log('[SIGNAL] Starting device linking...');
 
     try {
-        // Check if the QR endpoint is available
         const response = await fetch(`${SIGNAL_API_URL}/v1/qrcodelink?device_name=activity-tracker`);
         if (!response.ok) {
-            console.log('[SIGNAL] Failed to start linking:', response.status);
             signalLinkingInProgress = false;
             return;
         }
 
-        // signal-cli-rest-api returns the QR code as a PNG image directly
-        // Send the URL to the frontend to display as an image
         currentSignalQrUrl = `${SIGNAL_API_URL}/v1/qrcodelink?device_name=activity-tracker&t=${Date.now()}`;
-        console.log('[SIGNAL] Emitting QR image URL:', currentSignalQrUrl);
         io.emit('signal-qr-image', currentSignalQrUrl);
-
-        // Keep polling to check if linking completed
         pollSignalLinkingStatus();
     } catch (err) {
-        console.log('[SIGNAL] Error starting linking:', err);
         signalLinkingInProgress = false;
     }
 }
 
-// Poll to check if Signal linking has completed
 async function pollSignalLinkingStatus() {
+    if (!ENABLE_SIGNAL) return;
+
     const checkInterval = setInterval(async () => {
         try {
             const accounts = await getSignalAccounts(SIGNAL_API_URL);
             if (accounts.length > 0) {
-                // Linking completed!
                 clearInterval(checkInterval);
                 signalLinkingInProgress = false;
                 currentSignalQrUrl = null;
                 isSignalConnected = true;
                 signalAccountNumber = accounts[0];
-                console.log(`[SIGNAL] Linking completed! Account: ${signalAccountNumber}`);
                 io.emit('signal-connection-open', { number: signalAccountNumber });
             }
         } catch (err) {
@@ -217,21 +207,21 @@ async function pollSignalLinkingStatus() {
         }
     }, 2000);
 
-    // Stop polling after 5 minutes
     setTimeout(() => {
         clearInterval(checkInterval);
         signalLinkingInProgress = false;
     }, 300000);
 }
 
-// Check Signal connection periodically
-checkSignalConnection();
-setInterval(checkSignalConnection, 5000);
+// Signal sadece ENABLE_SIGNAL=true ise yoklansın
+if (ENABLE_SIGNAL) {
+    checkSignalConnection();
+    setInterval(checkSignalConnection, 5000);
+}
 
 io.on('connection', (socket) => {
     console.log('Client connected');
 
-    // Send current WhatsApp QR code if available
     if (currentWhatsAppQr) {
         socket.emit('qr', currentWhatsAppQr);
     }
@@ -244,24 +234,14 @@ io.on('connection', (socket) => {
         socket.emit('signal-connection-open', { number: signalAccountNumber });
     }
 
-    // Send Signal API availability status
     socket.emit('signal-api-status', { available: signalApiAvailable });
 
-    // Send current Signal QR code if linking is in progress
     if (signalLinkingInProgress && currentSignalQrUrl) {
         socket.emit('signal-qr-image', currentSignalQrUrl);
     }
 
-    // Send current probe method to client
     socket.emit('probe-method', globalProbeMethod);
 
-    // Send tracked contacts with platform info
-    const trackedContacts = Array.from(trackers.entries()).map(([id, entry]) => ({
-        id,
-        platform: entry.platform
-    }));
-
-    // Handle request to get tracked contacts (for page refresh)
     socket.on('get-tracked-contacts', () => {
         const trackedContacts = Array.from(trackers.entries()).map(([id, entry]) => ({
             id,
@@ -270,9 +250,7 @@ io.on('connection', (socket) => {
         socket.emit('tracked-contacts', trackedContacts);
     });
 
-    // Add contact - supports both WhatsApp and Signal
     socket.on('add-contact', async (data: string | { number: string; platform: Platform }) => {
-        // Support both old format (string) and new format (object)
         const { number, platform } = typeof data === 'string'
             ? { number: data, platform: 'whatsapp' as Platform }
             : data;
@@ -281,9 +259,8 @@ io.on('connection', (socket) => {
         const cleanNumber = number.replace(/\D/g, '');
 
         if (platform === 'signal') {
-            // Signal tracking
-            if (!isSignalConnected || !signalAccountNumber) {
-                socket.emit('error', { message: 'Signal is not connected. Please link Signal first.' });
+            if (!ENABLE_SIGNAL || !isSignalConnected || !signalAccountNumber) {
+                socket.emit('error', { message: 'Signal servisi aktif değil veya bağlı değil.' });
                 return;
             }
 
@@ -295,13 +272,9 @@ io.on('connection', (socket) => {
 
             try {
                 const targetNumber = cleanNumber.startsWith('+') ? cleanNumber : `+${cleanNumber}`;
-
-                // Check if number is registered and discoverable on Signal
-                console.log(`[SIGNAL] Checking if ${targetNumber} is registered...`);
                 const checkResult = await checkSignalNumber(SIGNAL_API_URL, signalAccountNumber, targetNumber);
 
                 if (!checkResult.registered) {
-                    console.log(`[SIGNAL] Number ${targetNumber} is not discoverable: ${checkResult.error}`);
                     socket.emit('error', {
                         jid: signalId,
                         message: checkResult.error || 'Number is not registered on Signal'
@@ -309,9 +282,7 @@ io.on('connection', (socket) => {
                     return;
                 }
 
-                console.log(`[SIGNAL] Number ${targetNumber} is registered, starting tracking...`);
                 const tracker = new SignalTracker(SIGNAL_API_URL, signalAccountNumber, targetNumber);
-
                 trackers.set(signalId, { tracker, platform: 'signal' });
 
                 tracker.onUpdate = (updateData) => {
@@ -336,12 +307,15 @@ io.on('connection', (socket) => {
                 socket.emit('error', { message: 'Failed to start Signal tracking' });
             }
         } else {
-            // WhatsApp tracking (original logic)
+            // WhatsApp tracking
             const targetJid = cleanNumber + '@s.whatsapp.net';
 
+            // Önceden asılı kalmış bir tracker varsa önce onu tamamen temizle (Yeniden ekleme hatasını çözer)
             if (trackers.has(targetJid)) {
-                socket.emit('error', { jid: targetJid, message: 'Already tracking this contact' });
-                return;
+                try {
+                    trackers.get(targetJid)?.tracker.stopTracking();
+                } catch (e) {}
+                trackers.delete(targetJid);
             }
 
             try {
@@ -397,7 +371,11 @@ io.on('connection', (socket) => {
         console.log(`Request to stop tracking: ${jid}`);
         const entry = trackers.get(jid);
         if (entry) {
-            entry.tracker.stopTracking();
+            try {
+                entry.tracker.stopTracking();
+            } catch (err) {
+                console.error('Error stopping tracker:', err);
+            }
             trackers.delete(jid);
             socket.emit('contact-removed', jid);
         }
@@ -413,19 +391,15 @@ io.on('connection', (socket) => {
         globalProbeMethod = method;
 
         for (const entry of trackers.values()) {
-            // Only WhatsApp trackers support the delete method
             if (entry.platform === 'whatsapp') {
                 (entry.tracker as WhatsAppTracker).setProbeMethod(method);
             }
-            // Signal trackers always use reaction method
         }
 
         io.emit('probe-method', method);
-        console.log(`Probe method changed to: ${method}`);
     });
 });
 
-// Hem build hem dist klasorunu otomatik tespit eden istemci yolu
 const possibleClientPaths = [
     path.resolve(process.cwd(), 'client/build'),
     path.resolve(process.cwd(), 'client/dist'),
