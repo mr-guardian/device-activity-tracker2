@@ -3,9 +3,12 @@ import { io, Socket } from 'socket.io-client';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 
-// Create socket with autoConnect disabled so we can add listeners before connecting
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
-export const socket: Socket = io(API_URL, { autoConnect: false });
+// Railway ve canlı ortamda otomatik olarak açıldığı domaini kullanır
+const API_URL = process.env.REACT_APP_API_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+export const socket: Socket = io(API_URL, { 
+    autoConnect: false,
+    transports: ['websocket', 'polling']
+});
 
 export type Platform = 'whatsapp' | 'signal';
 
@@ -91,7 +94,7 @@ function App() {
         socket.on('signal-api-status', onSignalApiStatus);
         socket.on('signal-qr-image', onSignalQrImage);
 
-        // Now connect after listeners are set up
+        // Dinleyiciler kurulduktan sonra bağlantıyı başlat
         if (!socket.connected) {
             socket.connect();
         }
