@@ -26,7 +26,7 @@ const __dirname = path.dirname(__filename);
 
 // Configuration
 const SIGNAL_API_URL = process.env.SIGNAL_API_URL || 'http://localhost:8080';
-const ENABLE_SIGNAL = process.env.ENABLE_SIGNAL === 'true'; // Signal sadece açıkça istendiğinde çalışsın
+const ENABLE_SIGNAL = process.env.ENABLE_SIGNAL === 'true'; // Sadece açıkça istendiğinde çalışsın
 
 const app = express();
 app.use(cors());
@@ -218,7 +218,6 @@ async function pollSignalLinkingStatus() {
     }, 300000);
 }
 
-// Sadece ENABLE_SIGNAL=true ortam değişkeni tanımlıysa Signal kontrolü yap
 if (ENABLE_SIGNAL) {
     checkSignalConnection();
     setInterval(checkSignalConnection, 5000);
@@ -315,7 +314,6 @@ io.on('connection', (socket) => {
             // WhatsApp tracking
             const targetJid = cleanNumber + '@s.whatsapp.net';
 
-            // Kalıntı veya kilitlenmiş eski tracker varsa tamamen temizle
             if (trackers.has(targetJid)) {
                 try {
                     trackers.get(targetJid)?.tracker.stopTracking();
@@ -405,7 +403,7 @@ io.on('connection', (socket) => {
     });
 });
 
-// Hem göreceli (__dirname) hem mutlak (process.cwd) yolları kontrol et
+// Hem göreceli hem mutlak olası frontend dizinleri
 const possibleClientPaths = [
     path.resolve(process.cwd(), 'client/build'),
     path.resolve(process.cwd(), 'client/dist'),
@@ -416,7 +414,6 @@ const possibleClientPaths = [
     path.join(__dirname, '../build')
 ];
 
-// index.html içeren ilk geçerli klasörü yakala
 const clientPath = possibleClientPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || possibleClientPaths[0];
 
 console.log(`[FRONTEND] Serving static files from: ${clientPath}`);
@@ -424,7 +421,8 @@ console.log(`[FRONTEND] index.html exists: ${fs.existsSync(path.join(clientPath,
 
 app.use(express.static(clientPath));
 
-app.get('*', (req: any, res: any) => {
+// Express v4 ve v5 uyumlu, path-to-regexp hatası vermeyen catch-all middleware
+app.use((req: any, res: any) => {
     const indexPath = path.join(clientPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
