@@ -9,6 +9,7 @@
 
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -18,6 +19,10 @@ import { pino } from 'pino';
 import { Boom } from '@hapi/boom';
 import { WhatsAppTracker, ProbeMethod } from './tracker.js';
 import { SignalTracker, getSignalAccounts, checkSignalNumber } from './signal-tracker.js';
+
+// ES Module __dirname çözümü
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Configuration
 const SIGNAL_API_URL = process.env.SIGNAL_API_URL || 'http://localhost:8080';
@@ -213,7 +218,7 @@ async function pollSignalLinkingStatus() {
     }, 300000);
 }
 
-// Signal sadece ENABLE_SIGNAL=true ise yoklansın
+// Sadece ENABLE_SIGNAL=true ortam değişkeni tanımlıysa Signal kontrolü yap
 if (ENABLE_SIGNAL) {
     checkSignalConnection();
     setInterval(checkSignalConnection, 5000);
@@ -310,7 +315,7 @@ io.on('connection', (socket) => {
             // WhatsApp tracking
             const targetJid = cleanNumber + '@s.whatsapp.net';
 
-            // Önceden asılı kalmış bir tracker varsa önce onu tamamen temizle (Yeniden ekleme hatasını çözer)
+            // Kalıntı veya kilitlenmiş eski tracker varsa tamamen temizle
             if (trackers.has(targetJid)) {
                 try {
                     trackers.get(targetJid)?.tracker.stopTracking();
@@ -400,23 +405,37 @@ io.on('connection', (socket) => {
     });
 });
 
+// Hem göreceli (__dirname) hem mutlak (process.cwd) yolları kontrol et
 const possibleClientPaths = [
     path.resolve(process.cwd(), 'client/build'),
     path.resolve(process.cwd(), 'client/dist'),
+    path.join(__dirname, '../client/build'),
+    path.join(__dirname, '../client/dist'),
     path.resolve(process.cwd(), 'build'),
-    path.resolve(process.cwd(), 'dist')
+    path.resolve(process.cwd(), 'dist'),
+    path.join(__dirname, '../build')
 ];
 
-const clientPath = possibleClientPaths.find((p) => fs.existsSync(p)) || possibleClientPaths[0];
+// index.html içeren ilk geçerli klasörü yakala
+const clientPath = possibleClientPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || possibleClientPaths[0];
+
+console.log(`[FRONTEND] Serving static files from: ${clientPath}`);
+console.log(`[FRONTEND] index.html exists: ${fs.existsSync(path.join(clientPath, 'index.html'))}`);
 
 app.use(express.static(clientPath));
 
-app.use((req: any, res: any) => {
+app.get('*', (req: any, res: any) => {
     const indexPath = path.join(clientPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
-        res.send('Tracker Backend Calisiyor. Frontend dosyalari derleniyor...');
+        res.status(200).send(`
+            <div style="font-family:sans-serif; padding:40px; text-align:center;">
+                <h2>Tracker Backend Çalışıyor</h2>
+                <p>Frontend dosyaları aranıyor...</p>
+                <small style="color:gray;">Aranan yol: ${indexPath}</small>
+            </div>
+        `);
     }
 });
 
