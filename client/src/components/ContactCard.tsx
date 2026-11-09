@@ -1,6 +1,6 @@
 import React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Square, Activity, Wifi, Smartphone, Monitor, MessageCircle } from 'lucide-react';
+import { Square, Activity, Wifi, Smartphone, Monitor, MessageCircle, Zap } from 'lucide-react';
 import clsx from 'clsx';
 
 type Platform = 'whatsapp' | 'signal';
@@ -52,6 +52,14 @@ export function ContactCard({
             devices.find(d => d.state.includes('Online'))?.state ||
             devices[0].state)
         : 'Unknown';
+
+    // Fark (Delta) hesaplaması: Avg RTT - Threshold
+    const avgRtt = lastData?.avg || 0;
+    const threshold = lastData?.threshold || 0;
+    const hasCalibrated = threshold > 0 && avgRtt > 0;
+    const delta = avgRtt - threshold;
+    const isUnderThreshold = delta < 0;
+    const absDelta = Math.abs(Math.round(delta));
 
     // Blur phone number in privacy mode
     const blurredNumber = privacyMode ? displayNumber.replace(/\d/g, '•') : displayNumber;
@@ -161,19 +169,63 @@ export function ContactCard({
 
                     {/* Metrics & Chart */}
                     <div className="md:col-span-2 space-y-6">
-                        {/* Metrics Grid */}
-                        <div className="grid grid-cols-3 gap-4">
+                        {/* Metrics Grid (4'lü Kolon Düzeni) */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                                <div className="text-sm text-gray-500 mb-1 flex items-center gap-1"><Activity size={16} /> Current Avg RTT</div>
-                                <div className="text-2xl font-bold text-gray-900">{lastData?.avg.toFixed(0) || '-'} ms</div>
+                                <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                                    <Activity size={14} /> Avg RTT
+                                </div>
+                                <div className="text-xl font-bold text-gray-900">
+                                    {lastData?.avg.toFixed(0) || '-'} <span className="text-xs font-normal">ms</span>
+                                </div>
                             </div>
+
                             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                                <div className="text-sm text-gray-500 mb-1">Median (50)</div>
-                                <div className="text-2xl font-bold text-gray-900">{lastData?.median.toFixed(0) || '-'} ms</div>
+                                <div className="text-xs text-gray-500 mb-1">Median (50)</div>
+                                <div className="text-xl font-bold text-gray-900">
+                                    {lastData?.median.toFixed(0) || '-'} <span className="text-xs font-normal">ms</span>
+                                </div>
                             </div>
+
                             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                                <div className="text-sm text-gray-500 mb-1">Threshold</div>
-                                <div className="text-2xl font-bold text-blue-600">{lastData?.threshold.toFixed(0) || '-'} ms</div>
+                                <div className="text-xs text-gray-500 mb-1">Threshold</div>
+                                <div className="text-xl font-bold text-blue-600">
+                                    {lastData?.threshold.toFixed(0) || '-'} <span className="text-xs font-normal">ms</span>
+                                </div>
+                            </div>
+
+                            {/* RTT vs Threshold Delta Kartı */}
+                            <div className={clsx(
+                                "p-4 rounded-xl shadow-sm border transition-all",
+                                !hasCalibrated
+                                    ? "bg-white border-gray-200 text-gray-400"
+                                    : isUnderThreshold
+                                        ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                                        : "bg-amber-50 border-amber-200 text-amber-800"
+                            )}>
+                                <div className="text-xs font-medium mb-1 flex items-center gap-1">
+                                    <Zap size={14} className={clsx(
+                                        !hasCalibrated ? "text-gray-400" : isUnderThreshold ? "text-emerald-600" : "text-amber-600"
+                                    )} />
+                                    Fark (Δ RTT)
+                                </div>
+                                <div className="text-xl font-bold">
+                                    {!hasCalibrated ? (
+                                        '-'
+                                    ) : (
+                                        <>
+                                            {isUnderThreshold ? `-${absDelta}` : `+${absDelta}`}{' '}
+                                            <span className="text-xs font-normal">ms</span>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="text-[10px] mt-0.5 font-semibold">
+                                    {!hasCalibrated
+                                        ? 'Kalibrasyon...'
+                                        : isUnderThreshold
+                                            ? '🔥 Eşik Altı (Aktif)'
+                                            : '💤 Eşik Üstü (Standby)'}
+                                </div>
                             </div>
                         </div>
 
