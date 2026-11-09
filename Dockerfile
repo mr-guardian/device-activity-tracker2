@@ -3,37 +3,27 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install git and build dependencies
+# Gerekli sistem paketleri
 RUN apk add --no-cache git python3 make g++
 
-# Copy backend package files
+# Backend bağımlılıkları ve derleme
 COPY package*.json ./
 COPY tsconfig.json ./
-
-# Install backend dependencies
 RUN npm install --ignore-scripts
-
-# Copy backend source code
 COPY src ./src
-
-# Build Backend TypeScript
 RUN npm run build
 
-# --- Frontend Build Etabı ---
+# Frontend hazırlık ve derleme
 COPY client ./client
-
-# Client bağımlılıklarını kur, ajv çakışmasını gider ve derle
 RUN cd client && \
     npm install --legacy-peer-deps && \
-    npm install ajv@^8.0.0 --legacy-peer-deps && \
-    TSC_COMPILE_ON_ERROR=true npm run build
+    CI=false npm run build
 
-# Expose port
+# Port ve klasör tanımları
 ARG PORT=3001
 ENV PORT=${PORT}
 EXPOSE ${PORT}
 
-# WhatsApp oturum klasörünü oluştur
 RUN mkdir -p /app/auth_info_baileys
 
 CMD ["node", "dist/server.js"]
