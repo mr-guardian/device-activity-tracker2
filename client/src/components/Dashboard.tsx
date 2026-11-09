@@ -18,32 +18,42 @@ export function Dashboard({ connectionState }: { connectionState: ConnectionStat
     const [selectedPlatform, setSelectedPlatform] = useState<Platform>('whatsapp');
     const [contacts, setContacts] = useState>(new Map());
     
-    // LocalStorage'dan geçmişi yükle
+    // Güvenli LocalStorage Başlatma
     const [historyData, setHistoryData] = useState>(() => {
+        const initialMap = new Map<string, TrackerData[]>();
         try {
             const saved = localStorage.getItem('tracker_history_data');
             if (saved) {
                 const parsed = JSON.parse(saved);
-                return new Map(Object.entries(parsed));
+                if (parsed && typeof parsed === 'object') {
+                    for (const [key, value] of Object.entries(parsed)) {
+                        if (Array.isArray(value)) {
+                            initialMap.set(key, value);
+                        }
+                    }
+                }
             }
         } catch (e) {
-            console.error('LocalStorage okunamadı:', e);
+            console.error('LocalStorage okuma hatası:', e);
+            localStorage.removeItem('tracker_history_data');
         }
-        return new Map();
+        return initialMap;
     });
 
     const [privacyMode, setPrivacyMode] = useState(false);
 
-    // Veri değiştikçe localStorage'a yaz
+    // Veri değiştikçe güvenli kaydetme
     useEffect(() => {
         try {
-            const obj: Record<string, TrackerData[]> = {};
+            const plainObject: Record<string, TrackerData[]> = {};
             historyData.forEach((val, key) => {
-                obj[key] = val.slice(-2000);
+                if (Array.isArray(val)) {
+                    plainObject[key] = val.slice(-1000); // Belleği şişirmemek için son 1000 kayıt
+                }
             });
-            localStorage.setItem('tracker_history_data', JSON.stringify(obj));
+            localStorage.setItem('tracker_history_data', JSON.stringify(plainObject));
         } catch (e) {
-            console.error('LocalStorage yazılamadı:', e);
+            console.error('LocalStorage yazma hatası:', e);
         }
     }, [historyData]);
 
@@ -100,16 +110,16 @@ export function Dashboard({ connectionState }: { connectionState: ConnectionStat
                 const newPoint: TrackerData = {
                     rtt: primaryDevice.rtt,
                     avg: primaryDevice.avg,
-                    median: update.median,
-                    threshold: update.threshold,
-                    state: primaryDevice.state,
+                    median: update.median || 0,
+                    threshold: update.threshold || 0,
+                    state: primaryDevice.state || 'Standby',
                     timestamp: now
                 };
 
                 setHistoryData(prev => {
                     const next = new Map(prev);
                     const currentList = next.get(jid) || [];
-                    next.set(jid, [...currentList.slice(-2000), newPoint]);
+                    next.set(jid, [...currentList.slice(-1000), newPoint]);
                     return next;
                 });
             }
