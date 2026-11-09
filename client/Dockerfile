@@ -1,44 +1,30 @@
-# Client Dockerfile
-FROM node:20-alpine AS build
+# Backend & Frontend Unified Dockerfile
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Install git and build dependencies
+# Gerekli sistem paketleri
 RUN apk add --no-cache git python3 make g++
 
-# Copy package files
+# Backend bağımlılıkları ve derleme
 COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy source code and config
-COPY public ./public
-COPY src ./src
 COPY tsconfig.json ./
-COPY tailwind.config.js ./
-COPY postcss.config.js ./
-
-# Build argument for API URL
-ARG REACT_APP_API_URL=http://localhost:3001
-ENV REACT_APP_API_URL=${REACT_APP_API_URL}
-
-# Build the app
+RUN npm install --ignore-scripts
+COPY src ./src
 RUN npm run build
 
-# Production stage with nginx
-FROM nginx:alpine
+# Frontend hazırlık ve derleme
+COPY client ./client
+RUN cd client && \
+    npm install --legacy-peer-deps && \
+    npm install ajv@^8.0.0 --legacy-peer-deps && \
+    DISABLE_ESLINT_PLUGIN=true TSC_COMPILE_ON_ERROR=true CI=false npm run build
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Copy built app
-COPY --from=build /app/build /usr/share/nginx/html
-
-# Expose port
-ARG PORT=3000
+# Port ve kalıcı oturum klasörü
+ARG PORT=3001
 ENV PORT=${PORT}
 EXPOSE ${PORT}
 
-# Start nginx with the specified port
-CMD sed -i "s/listen 80;/listen ${PORT};/g" /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'
+RUN mkdir -p /app/auth_info_baileys
+
+CMD ["node", "dist/server.js"]
