@@ -20,13 +20,13 @@ import { Boom } from '@hapi/boom';
 import { WhatsAppTracker, ProbeMethod } from './tracker.js';
 import { SignalTracker, getSignalAccounts, checkSignalNumber } from './signal-tracker.js';
 
-// ES Module __dirname tanımlaması
+// ES Module __dirname çözümü
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Yapılandırma
 const SIGNAL_API_URL = process.env.SIGNAL_API_URL || 'http://localhost:8080';
-const ENABLE_SIGNAL = process.env.ENABLE_SIGNAL === 'true'; // İsteğe bağlı Signal desteği
+const ENABLE_SIGNAL = process.env.ENABLE_SIGNAL === 'true'; // Sadece istendiğinde çalışsın
 
 const app = express();
 app.use(cors());
@@ -105,7 +105,7 @@ async function connectToWhatsApp() {
 
 connectToWhatsApp();
 
-// Signal Entegrasyon Bloğu (Sadece ENABLE_SIGNAL=true ise çalışır)
+// Signal Bağlantı Kontrolü
 let signalLinkingInProgress = false;
 let signalApiAvailable = false;
 let currentSignalQrUrl: string | null = null;
@@ -207,7 +207,7 @@ async function pollSignalLinkingStatus() {
                 io.emit('signal-connection-open', { number: signalAccountNumber });
             }
         } catch (err) {
-            // Keep polling
+            // Dinlemeye devam et
         }
     }, 2000);
 
@@ -310,10 +310,9 @@ io.on('connection', (socket) => {
                 socket.emit('error', { message: 'Failed to start Signal tracking' });
             }
         } else {
-            // WhatsApp takibi
+            // WhatsApp izleme
             const targetJid = cleanNumber + '@s.whatsapp.net';
 
-            // Önceden asılı kalmış izleyiciyi temizle
             if (trackers.has(targetJid)) {
                 try {
                     trackers.get(targetJid)?.tracker.stopTracking();
@@ -403,44 +402,41 @@ io.on('connection', (socket) => {
     });
 });
 
-// Olası frontend dizinlerini tara
-const checkPaths = [
-    path.resolve(process.cwd(), 'client/build'),
-    path.resolve(process.cwd(), 'client/dist'),
-    path.resolve(process.cwd(), 'build'),
-    path.resolve(process.cwd(), 'dist/client'),
-    path.join(__dirname, '../client/build'),
-    path.join(__dirname, '../client/dist'),
-    path.join(__dirname, '../build')
-];
+// Statik Dosya Sunucusu ve Akıllı HTML Yakalama
+const clientDir = path.resolve(process.cwd(), 'client/build');
 
-let clientPath = checkPaths.find((p) => fs.existsSync(path.join(p, 'index.html')));
-
-if (!clientPath) {
-    clientPath = path.resolve(process.cwd(), 'client/build');
-    console.log(`[FRONTEND] index.html bulunamadı! Taranan yollar:`, checkPaths);
-} else {
-    console.log(`[FRONTEND] index.html bulundu: ${clientPath}`);
+let filesInBuild: string[] = [];
+try {
+    if (fs.existsSync(clientDir)) {
+        filesInBuild = fs.readdirSync(clientDir);
+        console.log('[FRONTEND] client/build içindeki dosyalar:', filesInBuild);
+    }
+} catch (e) {
+    console.error('[FRONTEND] Dizin okunamadı:', e);
 }
 
-app.use(express.static(clientPath));
+app.use(express.static(clientDir));
 
-// Express v4 ve v5 uyumlu catch-all middleware
 app.use((req: any, res: any) => {
-    const indexPath = path.join(clientPath, 'index.html');
+    const indexPath = path.join(clientDir, 'index.html');
+    
     if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-    } else {
-        const existingDirs = checkPaths.filter((p) => fs.existsSync(p));
-        res.status(200).send(`
-            <div style="font-family:sans-serif; padding:40px; text-align:center;">
-                <h2>Tracker Backend Çalışıyor</h2>
-                <p>Frontend dosyaları derleme çıktısında bulunamadı.</p>
-                <p><b>Aranan ana yol:</b> ${indexPath}</p>
-                <p><b>Diskte var olan klasörler:</b> ${existingDirs.join(', ') || 'Hiçbiri'}</p>
-            </div>
-        `);
+        return res.sendFile(indexPath);
     }
+
+    const anyHtml = filesInBuild.find(f => f.endsWith('.html'));
+    if (anyHtml) {
+        return res.sendFile(path.join(clientDir, anyHtml));
+    }
+
+    res.status(200).send(`
+        <div style="font-family:sans-serif; padding:40px; text-align:center;">
+            <h2>Tracker Backend Çalışıyor</h2>
+            <p>client/build klasörü mevcut fakat index.html bulunamadı.</p>
+            <p><b>/app/client/build içindeki dosyalar:</b></p>
+            <pre style="background:#f4f4f4; padding:15px; border-radius:8px; display:inline-block; text-align:left;">${JSON.stringify(filesInBuild, null, 2)}</pre>
+        </div>
+    `);
 });
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
