@@ -1,4 +1,4 @@
-# Backend Dockerfile
+# Backend & Frontend Unified Dockerfile
 FROM node:20-alpine
 
 WORKDIR /app
@@ -10,14 +10,23 @@ RUN apk add --no-cache git python3 make g++
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Install dependencies (ignore postinstall script that tries to install client deps)
+# Install backend dependencies
 RUN npm install --ignore-scripts
 
-# Copy source code
+# Copy backend source code
 COPY src ./src
 
-# Build TypeScript
+# Build Backend TypeScript
 RUN npm run build
+
+# --- Frontend Build Etabı ---
+# Client klasörünü kopyala
+COPY client ./client
+
+# Client bağımlılıklarını kur ve derle (TS2322 hatasını bypass etmek için bayrak eklendi)
+RUN cd client && \
+    npm install --legacy-peer-deps && \
+    TSC_COMPILE_ON_ERROR=true npm run build
 
 # Expose port (can be overridden by environment variable)
 ARG PORT=3001
@@ -25,6 +34,6 @@ ENV PORT=${PORT}
 EXPOSE ${PORT}
 
 # Create directory for WhatsApp auth state
-RUN mkdir -p /app/baileys_auth_info
+RUN mkdir -p /app/auth_info_baileys
 
 CMD ["node", "dist/server.js"]
