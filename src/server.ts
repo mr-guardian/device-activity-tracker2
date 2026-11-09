@@ -8,6 +8,7 @@
  */
 
 import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -17,6 +18,10 @@ import { pino } from 'pino';
 import { Boom } from '@hapi/boom';
 import { WhatsAppTracker, ProbeMethod } from './tracker.js';
 import { SignalTracker, getSignalAccounts, checkSignalNumber } from './signal-tracker.js';
+
+// ES Module icinde __dirname tanimlamasi
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Configuration
 const SIGNAL_API_URL = process.env.SIGNAL_API_URL || 'http://localhost:8080';
@@ -427,7 +432,7 @@ io.on('connection', (socket) => {
 // React statik build dosyalarini sun
 app.use(express.static(path.join(__dirname, '../client/build')));
 
-// Tum rotalari React arayuzune yonlendir
+// Tum rotalari React ana sayfasina yonlendir
 app.get('*', (req: any, res: any) => {
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
 });
