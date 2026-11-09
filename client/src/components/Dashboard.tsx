@@ -1,379 +1,227 @@
-import React, { useEffect, useState } from 'react';
-import {Eye, EyeOff, Plus, Trash2, Zap, MessageCircle, Settings} from 'lucide-react';
-import { socket, Platform, ConnectionState } from '../App';
-import { ContactCard } from './ContactCard';
-import { Login } from './Login';
-
-type ProbeMethod = 'delete' | 'reaction';
-
-interface DashboardProps {
-    connectionState: ConnectionState;
-}
-
-interface TrackerData {
-    rtt: number;
-    avg: number;
-    median: number;
-    threshold: number;
-    state: string;
-    timestamp: number;
-}
-
-interface DeviceInfo {
-    jid: string;
-    state: string;
-    rtt: number;
-    avg: number;
-}
+import React, { useState, useEffect } from 'react';
+import { socket, ConnectionState, Platform } from '../App';
+import { ContactCard, TrackerData } from './ContactCard';
+import { UserPlus, Shield, ShieldOff, Trash2 } from 'lucide-react';
 
 interface ContactInfo {
-    jid: string;
-    displayNumber: string;
-    contactName: string;
-    data: TrackerData[];
-    devices: DeviceInfo[];
-    deviceCount: number;
-    presence: string | null;
-    profilePic: string | null;
+    id: string;
     platform: Platform;
+    name?: string;
+    profilePic?: string | null;
+    presence?: string | null;
+    devices?: any[];
+    deviceCount?: number;
 }
 
-export function Dashboard({ connectionState }: DashboardProps) {
-    const [inputNumber, setInputNumber] = useState('');
-    const [selectedPlatform, setSelectedPlatform] = useState<Platform>(
-        connectionState.whatsapp ? 'whatsapp' : 'signal'
-    );
-    const [contacts, setContacts] = useState<Map<string, ContactInfo>>(new Map());
-    const [error, setError] = useState<string | null>(null);
+export function Dashboard({ connectionState }: { connectionState: ConnectionState }) {
+    const [targetNumber, setTargetNumber] = useState('');
+    const [selectedPlatform, setSelectedPlatform] = useState<Platform>('whatsapp');
+    const [contacts, setContacts] = useState>(new Map());
+    
+    // LocalStorage'dan geçmişi yükle
+    const [historyData, setHistoryData] = useState>(() => {
+        try {
+            const saved = localStorage.getItem('tracker_history_data');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                return new Map(Object.entries(parsed));
+            }
+        } catch (e) {
+            console.error('LocalStorage okunamadı:', e);
+        }
+        return new Map();
+    });
+
     const [privacyMode, setPrivacyMode] = useState(false);
-    const [probeMethod, setProbeMethod] = useState<ProbeMethod>('delete');
-    const [showConnections, setShowConnections] = useState(false);
+
+    // Veri değiştikçe localStorage'a yaz
+    useEffect(() => {
+        try {
+            const obj: Record<string, TrackerData[]> = {};
+            historyData.forEach((val, key) => {
+                obj[key] = val.slice(-2000);
+            });
+            localStorage.setItem('tracker_history_data', JSON.stringify(obj));
+        } catch (e) {
+            console.error('LocalStorage yazılamadı:', e);
+        }
+    }, [historyData]);
 
     useEffect(() => {
-        function onTrackerUpdate(update: any) {
-            const { jid, ...data } = update;
-            if (!jid) return;
+        socket.emit('get-tracked-contacts');
 
+        const onTrackedContacts = (list: { id: string; platform: Platform }[]) => {
             setContacts(prev => {
                 const next = new Map(prev);
-                const contact = next.get(jid);
-
-                if (contact) {
-                    // Update existing contact
-                    const updatedContact = { ...contact };
-
-                    if (data.presence !== undefined) {
-                        updatedContact.presence = data.presence;
+                list.forEach(c => {
+                    if (!next.has(c.id)) {
+                        next.set(c.id, { id: c.id, platform: c.platform, devices: [] });
                     }
-                    if (data.deviceCount !== undefined) {
-                        updatedContact.deviceCount = data.deviceCount;
-                    }
-                    if (data.devices !== undefined) {
-                        updatedContact.devices = data.devices;
-                    }
-
-                    // Add to chart data
-                    if (data.median !== undefined && data.devices && data.devices.length > 0) {
-                        const newDataPoint: TrackerData = {
-                            rtt: data.devices[0].rtt,
-                            avg: data.devices[0].avg,
-                            median: data.median,
-                            threshold: data.threshold,
-                            state: data.devices.find((d: DeviceInfo) => d.state.includes('Online'))?.state || data.devices[0].state,
-                            timestamp: Date.now(),
-                        };
-                        updatedContact.data = [...updatedContact.data, newDataPoint];
-                    }
-
-                    next.set(jid, updatedContact);
-                }
-
-                return next;
-            });
-        }
-
-        function onProfilePic(data: { jid: string, url: string | null }) {
-            setContacts(prev => {
-                const next = new Map(prev);
-                const contact = next.get(data.jid);
-                if (contact) {
-                    next.set(data.jid, { ...contact, profilePic: data.url });
-                }
-                return next;
-            });
-        }
-
-        function onContactName(data: { jid: string, name: string }) {
-            setContacts(prev => {
-                const next = new Map(prev);
-                const contact = next.get(data.jid);
-                if (contact) {
-                    next.set(data.jid, { ...contact, contactName: data.name });
-                }
-                return next;
-            });
-        }
-
-        function onContactAdded(data: { jid: string, number: string, platform?: Platform }) {
-            setContacts(prev => {
-                const next = new Map(prev);
-                next.set(data.jid, {
-                    jid: data.jid,
-                    displayNumber: data.number,
-                    contactName: data.number,
-                    data: [],
-                    devices: [],
-                    deviceCount: 0,
-                    presence: null,
-                    profilePic: null,
-                    platform: data.platform || 'whatsapp'
                 });
                 return next;
             });
-            setInputNumber('');
-        }
+        };
 
-        function onContactRemoved(jid: string) {
+        const onContactAdded = (data: { jid: string; number: string; platform: Platform }) => {
+            setContacts(prev => {
+                const next = new Map(prev);
+                next.set(data.jid, { id: data.jid, platform: data.platform, name: data.number, devices: [] });
+                return next;
+            });
+        };
+
+        const onContactRemoved = (jid: string) => {
             setContacts(prev => {
                 const next = new Map(prev);
                 next.delete(jid);
                 return next;
             });
-        }
+        };
 
-        function onError(data: { jid?: string, message: string }) {
-            setError(data.message);
-            setTimeout(() => setError(null), 3000);
-        }
+        const onTrackerUpdate = (update: any) => {
+            const jid = update.jid;
+            const now = Date.now();
 
-        function onProbeMethod(method: ProbeMethod) {
-            setProbeMethod(method);
-        }
-
-        function onTrackedContacts(contacts: { id: string, platform: Platform }[]) {
             setContacts(prev => {
+                const contact = prev.get(jid);
+                if (!contact) return prev;
                 const next = new Map(prev);
-                contacts.forEach(({ id, platform }) => {
-                    if (!next.has(id)) {
-                        // Extract display number from id
-                        let displayNumber = id;
-                        if (platform === 'signal') {
-                            displayNumber = id.replace('signal:', '');
-                        } else {
-                            // WhatsApp JID format: number@s.whatsapp.net
-                            displayNumber = id.split('@')[0];
-                        }
-                        next.set(id, {
-                            jid: id,
-                            displayNumber,
-                            contactName: displayNumber,
-                            data: [],
-                            devices: [],
-                            deviceCount: 0,
-                            presence: null,
-                            profilePic: null,
-                            platform
-                        });
-                    }
+                next.set(jid, {
+                    ...contact,
+                    devices: update.devices || [],
+                    deviceCount: update.deviceCount || 0,
+                    presence: update.presence
                 });
                 return next;
             });
-        }
 
-        socket.on('tracker-update', onTrackerUpdate);
-        socket.on('profile-pic', onProfilePic);
-        socket.on('contact-name', onContactName);
+            if (update.devices && update.devices.length > 0) {
+                const primaryDevice = update.devices[0];
+                const newPoint: TrackerData = {
+                    rtt: primaryDevice.rtt,
+                    avg: primaryDevice.avg,
+                    median: update.median,
+                    threshold: update.threshold,
+                    state: primaryDevice.state,
+                    timestamp: now
+                };
+
+                setHistoryData(prev => {
+                    const next = new Map(prev);
+                    const currentList = next.get(jid) || [];
+                    next.set(jid, [...currentList.slice(-2000), newPoint]);
+                    return next;
+                });
+            }
+        };
+
+        const onProfilePic = (data: { jid: string; url: string | null }) => {
+            setContacts(prev => {
+                const contact = prev.get(data.jid);
+                if (!contact) return prev;
+                const next = new Map(prev);
+                next.set(data.jid, { ...contact, profilePic: data.url });
+                return next;
+            });
+        };
+
+        socket.on('tracked-contacts', onTrackedContacts);
         socket.on('contact-added', onContactAdded);
         socket.on('contact-removed', onContactRemoved);
-        socket.on('error', onError);
-        socket.on('probe-method', onProbeMethod);
-        socket.on('tracked-contacts', onTrackedContacts);
-
-        // Request tracked contacts after listeners are set up
-        socket.emit('get-tracked-contacts');
+        socket.on('tracker-update', onTrackerUpdate);
+        socket.on('profile-pic', onProfilePic);
 
         return () => {
-            socket.off('tracker-update', onTrackerUpdate);
-            socket.off('profile-pic', onProfilePic);
-            socket.off('contact-name', onContactName);
+            socket.off('tracked-contacts', onTrackedContacts);
             socket.off('contact-added', onContactAdded);
             socket.off('contact-removed', onContactRemoved);
-            socket.off('error', onError);
-            socket.off('probe-method', onProbeMethod);
-            socket.off('tracked-contacts', onTrackedContacts);
+            socket.off('tracker-update', onTrackerUpdate);
+            socket.off('profile-pic', onProfilePic);
         };
     }, []);
 
-    const handleAdd = () => {
-        if (!inputNumber) return;
-        socket.emit('add-contact', { number: inputNumber, platform: selectedPlatform });
+    const handleAddContact = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!targetNumber.trim()) return;
+        socket.emit('add-contact', { number: targetNumber, platform: selectedPlatform });
+        setTargetNumber('');
     };
 
-    const handleRemove = (jid: string) => {
+    const handleRemoveContact = (jid: string) => {
         socket.emit('remove-contact', jid);
     };
 
-    const handleProbeMethodChange = (method: ProbeMethod) => {
-        socket.emit('set-probe-method', method);
+    const clearLocalHistory = () => {
+        if (window.confirm('Tüm geçmiş grafik ve hareket verilerini temizlemek istiyor musunuz?')) {
+            localStorage.removeItem('tracker_history_data');
+            setHistoryData(new Map());
+        }
     };
 
     return (
         <div className="space-y-6">
-            {/* Add Contact Form */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <div className="flex justify-between items-center mb-4">
-                    <div className="flex items-center gap-4">
-                        <h2 className="text-xl font-semibold text-gray-900">Track Contacts</h2>
-                        {/* Manage Connections button */}
-                        <button
-                            onClick={() => setShowConnections(!showConnections)}
-                            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1 ${
-                                showConnections
-                                    ? 'bg-gray-700 text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                        >
-                            <Settings size={14} />
-                            {showConnections ? 'Hide Connections' : 'Manage Connections'}
-                        </button>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        {/* Probe Method Toggle */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">Probe Method:</span>
-                            <div className="flex rounded-lg overflow-hidden border border-gray-300">
-                                <button
-                                    onClick={() => handleProbeMethodChange('delete')}
-                                    className={`px-3 py-1.5 text-sm font-medium transition-all duration-200 flex items-center gap-1 ${
-                                        probeMethod === 'delete'
-                                            ? 'bg-purple-600 text-white'
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                    }`}
-                                    title="Silent Delete Probe - Completely covert, target sees nothing"
-                                >
-                                    <Trash2 size={14} />
-                                    Delete
-                                </button>
-                                <button
-                                    onClick={() => handleProbeMethodChange('reaction')}
-                                    className={`px-3 py-1.5 text-sm font-medium transition-all duration-200 flex items-center gap-1 ${
-                                        probeMethod === 'reaction'
-                                            ? 'bg-yellow-500 text-white'
-                                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                    }`}
-                                    title="Reaction Probe - Sends reactions to non-existent messages"
-                                >
-                                    <Zap size={14} />
-                                    Reaction
-                                </button>
-                            </div>
-                        </div>
-                        {/* Privacy Mode Toggle */}
-                        <button
-                            onClick={() => setPrivacyMode(!privacyMode)}
-                            className={`px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-all duration-200 ${
-                                privacyMode 
-                                    ? 'bg-green-600 text-white hover:bg-green-700 shadow-md' 
-                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                            }`}
-                            title={privacyMode ? 'Privacy Mode: ON (Click to disable)' : 'Privacy Mode: OFF (Click to enable)'}
-                        >
-                            {privacyMode ? (
-                                <>
-                                    <EyeOff size={20} />
-                                    <span>Privacy ON</span>
-                                </>
-                            ) : (
-                                <>
-                                    <Eye size={20} />
-                                    <span>Privacy OFF</span>
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </div>
-                <div className="flex gap-4">
-                    {/* Platform Selector */}
-                    <div className="flex rounded-lg overflow-hidden border border-gray-300">
-                        <button
-                            onClick={() => setSelectedPlatform('whatsapp')}
-                            disabled={!connectionState.whatsapp}
-                            className={`px-4 py-2 text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
-                                selectedPlatform === 'whatsapp'
-                                    ? 'bg-green-600 text-white'
-                                    : connectionState.whatsapp
-                                        ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            }`}
-                            title={connectionState.whatsapp ? 'WhatsApp' : 'WhatsApp not connected'}
-                        >
-                            <MessageCircle size={16} />
-                            WhatsApp
-                        </button>
-                        <button
-                            onClick={() => setSelectedPlatform('signal')}
-                            disabled={!connectionState.signal}
-                            className={`px-4 py-2 text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
-                                selectedPlatform === 'signal'
-                                    ? 'bg-blue-600 text-white'
-                                    : connectionState.signal
-                                        ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            }`}
-                            title={connectionState.signal ? 'Signal' : 'Signal not connected'}
-                        >
-                            <MessageCircle size={16} />
-                            Signal
-                        </button>
-                    </div>
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-wrap items-center justify-between gap-4">
+                <form onSubmit={handleAddContact} className="flex flex-wrap items-center gap-3">
+                    <select
+                        value={selectedPlatform}
+                        onChange={(e) => setSelectedPlatform(e.target.value as Platform)}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+                    >
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="signal">Signal</option>
+                    </select>
                     <input
                         type="text"
-                        placeholder="Enter phone number (e.g. 491701234567)"
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                        value={inputNumber}
-                        onChange={(e) => setInputNumber(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                        placeholder="Telefon Numarası (örn. 905xxxxxxxxx)"
+                        value={targetNumber}
+                        onChange={(e) => setTargetNumber(e.target.value)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <button
-                        onClick={handleAdd}
-                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium transition-colors"
+                        type="submit"
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-1.5"
                     >
-                        <Plus size={20} /> Add Contact
+                        <UserPlus size={16} /> Takip Başlat
+                    </button>
+                </form>
+
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={clearLocalHistory}
+                        title="Grafik hafızasını temizle"
+                        className="px-3 py-2 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 text-xs font-medium flex items-center gap-1.5"
+                    >
+                        <Trash2 size={14} /> Geçmişi Temizle
+                    </button>
+                    <button
+                        onClick={() => setPrivacyMode(!privacyMode)}
+                        className={`px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                            privacyMode ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+                        }`}
+                    >
+                        {privacyMode ? <Shield size={14} /> : <ShieldOff size={14} />}
+                        {privacyMode ? 'Gizlilik Açık' : 'Gizlilik Kapalı'}
                     </button>
                 </div>
-                {error && <p className="mt-2 text-red-500 text-sm">{error}</p>}
             </div>
 
-            {/* Connections Panel */}
-            {showConnections && (
-                <Login connectionState={connectionState} />
-            )}
-
-            {/* Contact Cards */}
-            {contacts.size === 0 ? (
-                <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl p-12 text-center">
-                    <p className="text-gray-500 text-lg">No contacts being tracked</p>
-                    <p className="text-gray-400 text-sm mt-2">Add a contact above to start tracking</p>
-                </div>
-            ) : (
-                <div className="space-y-6">
-                    {Array.from(contacts.values()).map(contact => (
-                        <ContactCard
-                            key={contact.jid}
-                            jid={contact.jid}
-                            displayNumber={contact.contactName}
-                            data={contact.data}
-                            devices={contact.devices}
-                            deviceCount={contact.deviceCount}
-                            presence={contact.presence}
-                            profilePic={contact.profilePic}
-                            onRemove={() => handleRemove(contact.jid)}
-                            privacyMode={privacyMode}
-                            platform={contact.platform}
-                        />
-                    ))}
-                </div>
-            )}
+            <div className="space-y-6">
+                {Array.from(contacts.values()).map(contact => (
+                    <ContactCard
+                        key={contact.id}
+                        jid={contact.id}
+                        displayNumber={contact.name || contact.id.replace(/\D/g, '')}
+                        data={historyData.get(contact.id) || []}
+                        devices={contact.devices || []}
+                        deviceCount={contact.deviceCount || 0}
+                        presence={contact.presence || null}
+                        profilePic={contact.profilePic || null}
+                        onRemove={() => handleRemoveContact(contact.id)}
+                        privacyMode={privacyMode}
+                        platform={contact.platform}
+                    />
+                ))}
+            </div>
         </div>
     );
 }
