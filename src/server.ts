@@ -20,13 +20,13 @@ import { Boom } from '@hapi/boom';
 import { WhatsAppTracker, ProbeMethod } from './tracker.js';
 import { SignalTracker, getSignalAccounts, checkSignalNumber } from './signal-tracker.js';
 
-// ES Module __dirname çözümü
+// ES Module __dirname tanımlaması
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configuration
+// Yapılandırma
 const SIGNAL_API_URL = process.env.SIGNAL_API_URL || 'http://localhost:8080';
-const ENABLE_SIGNAL = process.env.ENABLE_SIGNAL === 'true'; // Sadece açıkça istendiğinde çalışsın
+const ENABLE_SIGNAL = process.env.ENABLE_SIGNAL === 'true'; // İsteğe bağlı Signal desteği
 
 const app = express();
 app.use(cors());
@@ -46,7 +46,6 @@ let signalAccountNumber: string | null = null;
 let globalProbeMethod: ProbeMethod = 'delete';
 let currentWhatsAppQr: string | null = null;
 
-// Platform type for contacts
 type Platform = 'whatsapp' | 'signal';
 
 interface TrackerEntry {
@@ -106,7 +105,7 @@ async function connectToWhatsApp() {
 
 connectToWhatsApp();
 
-// Signal linking state
+// Signal Entegrasyon Bloğu (Sadece ENABLE_SIGNAL=true ise çalışır)
 let signalLinkingInProgress = false;
 let signalApiAvailable = false;
 let currentSignalQrUrl: string | null = null;
@@ -311,9 +310,10 @@ io.on('connection', (socket) => {
                 socket.emit('error', { message: 'Failed to start Signal tracking' });
             }
         } else {
-            // WhatsApp tracking
+            // WhatsApp takibi
             const targetJid = cleanNumber + '@s.whatsapp.net';
 
+            // Önceden asılı kalmış izleyiciyi temizle
             if (trackers.has(targetJid)) {
                 try {
                     trackers.get(targetJid)?.tracker.stopTracking();
@@ -403,35 +403,41 @@ io.on('connection', (socket) => {
     });
 });
 
-// Hem göreceli hem mutlak olası frontend dizinleri
-const possibleClientPaths = [
+// Olası frontend dizinlerini tara
+const checkPaths = [
     path.resolve(process.cwd(), 'client/build'),
     path.resolve(process.cwd(), 'client/dist'),
+    path.resolve(process.cwd(), 'build'),
+    path.resolve(process.cwd(), 'dist/client'),
     path.join(__dirname, '../client/build'),
     path.join(__dirname, '../client/dist'),
-    path.resolve(process.cwd(), 'build'),
-    path.resolve(process.cwd(), 'dist'),
     path.join(__dirname, '../build')
 ];
 
-const clientPath = possibleClientPaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || possibleClientPaths[0];
+let clientPath = checkPaths.find((p) => fs.existsSync(path.join(p, 'index.html')));
 
-console.log(`[FRONTEND] Serving static files from: ${clientPath}`);
-console.log(`[FRONTEND] index.html exists: ${fs.existsSync(path.join(clientPath, 'index.html'))}`);
+if (!clientPath) {
+    clientPath = path.resolve(process.cwd(), 'client/build');
+    console.log(`[FRONTEND] index.html bulunamadı! Taranan yollar:`, checkPaths);
+} else {
+    console.log(`[FRONTEND] index.html bulundu: ${clientPath}`);
+}
 
 app.use(express.static(clientPath));
 
-// Express v4 ve v5 uyumlu, path-to-regexp hatası vermeyen catch-all middleware
+// Express v4 ve v5 uyumlu catch-all middleware
 app.use((req: any, res: any) => {
     const indexPath = path.join(clientPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
+        const existingDirs = checkPaths.filter((p) => fs.existsSync(p));
         res.status(200).send(`
             <div style="font-family:sans-serif; padding:40px; text-align:center;">
                 <h2>Tracker Backend Çalışıyor</h2>
-                <p>Frontend dosyaları aranıyor...</p>
-                <small style="color:gray;">Aranan yol: ${indexPath}</small>
+                <p>Frontend dosyaları derleme çıktısında bulunamadı.</p>
+                <p><b>Aranan ana yol:</b> ${indexPath}</p>
+                <p><b>Diskte var olan klasörler:</b> ${existingDirs.join(', ') || 'Hiçbiri'}</p>
             </div>
         `);
     }
