@@ -18,13 +18,13 @@ ENV GENERATE_SOURCEMAP=false
 ENV DISABLE_ESLINT_PLUGIN=true
 ENV TSC_COMPILE_ON_ERROR=true
 ENV INLINE_RUNTIME_CHUNK=false
-ENV NODE_OPTIONS="--max-old-space-size=512"
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 
 RUN cd client && \
     npm install --legacy-peer-deps --no-audit --no-fund && \
-    npx cross-env GENERATE_SOURCEMAP=false react-scripts build
+    ./node_modules/.bin/react-scripts build
 
-# Port ve kalıcı volume
+# Port ve kalıcı Baileys oturum klasörü
 ARG PORT=3001
 ENV PORT=${PORT}
 EXPOSE ${PORT}
