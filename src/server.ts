@@ -8,6 +8,7 @@
  */
 
 import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -17,6 +18,10 @@ import { pino } from 'pino';
 import { Boom } from '@hapi/boom';
 import { WhatsAppTracker, ProbeMethod } from './tracker.js';
 import { SignalTracker, getSignalAccounts, checkSignalNumber } from './signal-tracker.js';
+
+// ES Module uyumlu __dirname tanımı
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Configuration
 const SIGNAL_API_URL = process.env.SIGNAL_API_URL || 'http://localhost:8080';
@@ -56,7 +61,7 @@ async function connectToWhatsApp() {
         auth: state,
         logger: pino({ level: 'debug' }),
         markOnlineOnConnect: true,
-        printQRInTerminal: true, // QR kodun Railway terminal loglarına kare olarak basılması sağlandı
+        printQRInTerminal: true,
     });
 
     sock.ev.on('connection.update', async (update: any) => {
@@ -151,7 +156,6 @@ async function checkSignalConnection() {
                 console.log('[SIGNAL] Disconnected');
                 io.emit('signal-disconnected');
             }
-            // No accounts - need to link, start QR code process
             if (!signalLinkingInProgress) {
                 startSignalLinking();
             }
@@ -166,7 +170,7 @@ async function checkSignalConnection() {
     }
 }
 
-// Start Signal device linking - signal-cli-rest-api returns QR as PNG image
+// Start Signal device linking
 async function startSignalLinking() {
     if (signalLinkingInProgress || isSignalConnected) return;
 
@@ -174,7 +178,6 @@ async function startSignalLinking() {
     console.log('[SIGNAL] Starting device linking...');
 
     try {
-        // Check if the QR endpoint is available
         const response = await fetch(`${SIGNAL_API_URL}/v1/qrcodelink?device_name=activity-tracker`);
         if (!response.ok) {
             console.log('[SIGNAL] Failed to start linking:', response.status);
@@ -218,7 +221,6 @@ async function pollSignalLinkingStatus() {
     }, 300000);
 }
 
-// Check Signal connection periodically
 checkSignalConnection();
 setInterval(checkSignalConnection, 5000);
 
@@ -405,12 +407,13 @@ io.on('connection', (socket) => {
     });
 });
 
-// React build klasörünü statik olarak sun
-app.use(express.static(path.join(__dirname, '../client/build')));
+// React build klasörünü statik olarak sun (ESM uyumlu path)
+const clientBuildPath = path.resolve(__dirname, '../../client/build');
+app.use(express.static(clientBuildPath));
 
-// API dışındaki tüm GET isteklerini React arayüzüne (index.html) yönlendir
+// API harici istekleri React index.html'e yönlendir
 app.get('*', (req: any, res: any) => {
-    res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
+    res.sendFile(path.join(clientBuildPath, 'index.html'));
 });
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
