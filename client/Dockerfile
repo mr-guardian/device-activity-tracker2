@@ -17,10 +17,11 @@ ENV CI=false
 ENV DISABLE_ESLINT_PLUGIN=true
 ENV TSC_COMPILE_ON_ERROR=true
 ENV GENERATE_SOURCEMAP=false
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 
 RUN cd client && \
     npm install --legacy-peer-deps && \
-    npm run build
+    npx react-scripts build
 
 # Port ve Oturum Klasörü
 ARG PORT=3001
