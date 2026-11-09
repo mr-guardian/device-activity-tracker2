@@ -19,7 +19,7 @@ import { Boom } from '@hapi/boom';
 import { WhatsAppTracker, ProbeMethod } from './tracker.js';
 import { SignalTracker, getSignalAccounts, checkSignalNumber } from './signal-tracker.js';
 
-// ES Module uyumlu __dirname tanımı
+// ESM uyumlu dizin yolu tanımı
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -407,12 +407,12 @@ io.on('connection', (socket) => {
     });
 });
 
-// React build klasörünü statik olarak sun (ESM uyumlu path)
+// React build klasörünü statik dosya olarak sun
 const clientBuildPath = path.resolve(__dirname, '../../client/build');
 app.use(express.static(clientBuildPath));
 
-// API harici istekleri React index.html'e yönlendir
-app.get('*', (req: any, res: any) => {
+// Express 5 uyumlu fallback: Tanımlı olmayan tüm rotalara index.html gönder
+app.use((req: any, res: any) => {
     res.sendFile(path.join(clientBuildPath, 'index.html'));
 });
 
